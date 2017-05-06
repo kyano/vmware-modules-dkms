@@ -1,0 +1,1108 @@
+diff --git a/vmmon-only/linux/driver.c b/vmmon-only/linux/driver.c
+index 87cf45b..028e810 100644
+--- a/vmmon-only/linux/driver.c
++++ b/vmmon-only/linux/driver.c
+@@ -105,7 +105,11 @@ long LinuxDriver_Ioctl(struct file *filp, u_int iocmd,
+ static int LinuxDriver_Close(struct inode *inode, struct file *filp);
+ static unsigned int LinuxDriverPoll(struct file *file, poll_table *wait);
+ #if defined(VMW_NOPAGE_2624)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
++static int LinuxDriverFault(struct vm_fault *fault);
++#else
+ static int LinuxDriverFault(struct vm_area_struct *vma, struct vm_fault *fault);
++#endif
+ #else
+ static struct page *LinuxDriverNoPage(struct vm_area_struct *vma,
+                                       unsigned long address,
+@@ -254,7 +258,7 @@ static void
+ LinuxDriverInitTSCkHz(void)
+ {
+    unsigned int khz;
+- 
++
+    khz = compat_tsc_khz();
+    if (khz != 0) {
+       Atomic_Write(&tsckHz, khz);
+@@ -269,7 +273,7 @@ LinuxDriverInitTSCkHz(void)
+    add_timer(&tscTimer);
+ }
+ 
+- 
++
+ /*
+  *----------------------------------------------------------------------
+  *
+@@ -882,15 +886,23 @@ LinuxDriverPollTimeout(unsigned long clientData)  // IN:
+  */
+ 
+ #if defined(VMW_NOPAGE_2624)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
++static int LinuxDriverFault(struct vm_fault *fault)     //IN/OUT
++#else
+ static int LinuxDriverFault(struct vm_area_struct *vma, //IN
+                             struct vm_fault *fault)     //IN/OUT
++#endif
+ #else
+ static struct page *LinuxDriverNoPage(struct vm_area_struct *vma, //IN
+                                       unsigned long address,      //IN
+                                       int *type)                  //OUT: Fault type
+ #endif
+ {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
++   VMLinux *vmLinux = (VMLinux *) fault->vma->vm_file->private_data;
++#else
+    VMLinux *vmLinux = (VMLinux *) vma->vm_file->private_data;
++#endif
+    unsigned long pg;
+    struct page* page;
+ 
+@@ -1971,7 +1983,7 @@ LinuxDriver_Ioctl(struct file *filp,    // IN:
+       break;
+    }
+ 
+-   default: 
++   default:
+       Warning("Unknown ioctl %d\n", iocmd);
+       retval = -EINVAL;
+    }
+diff --git a/vmmon-only/linux/hostif.c b/vmmon-only/linux/hostif.c
+index fd32013..16d47eb 100644
+--- a/vmmon-only/linux/hostif.c
++++ b/vmmon-only/linux/hostif.c
+@@ -74,6 +74,9 @@
+ #include <linux/kthread.h>
+ #include <linux/wait.h>
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
++#include <linux/sched/signal.h>
++#endif
+ 
+ #include "vmware.h"
+ #include "x86apic.h"
+@@ -435,7 +438,7 @@ HostIF_CancelWaitForThreads(VMDriver *vm,     // IN:
+  * HostIF_WakeUpYielders --
+  *
+  *      Wakeup vCPUs that are waiting for the current vCPU.
+- *      
++ *
+  * Results:
+  *      The requested vCPUs are nudged if they are sleeping due to
+  *      Vmx86_YieldToSet.
+@@ -518,7 +521,7 @@ HostIF_InitGlobalLock(void)
+  *      None
+  *
+  * Side effects:
+- *      Should be a very low contention lock. 
++ *      Should be a very low contention lock.
+  *      The current thread is rescheduled if the lock is busy.
+  *
+  *-----------------------------------------------------------------------------
+@@ -561,7 +564,7 @@ HostIF_GlobalUnlock(int callerID) // IN
+  * HostIF_GlobalLockIsHeld --
+  *
+  *      Determine if the global lock is held by the current thread.
+- * 
++ *
+  * Results:
+  *      TRUE if yes
+  *      FALSE if no
+@@ -591,7 +594,7 @@ HostIF_GlobalLockIsHeld(void)
+  *      None
+  *
+  * Side effects:
+- *      Should be a very low contention lock. 
++ *      Should be a very low contention lock.
+  *      The current thread is rescheduled if the lock is busy.
+  *
+  *-----------------------------------------------------------------------------
+@@ -726,7 +729,7 @@ static int
+ HostIFHostMemInit(VMDriver *vm)  // IN:
+ {
+    VMHost *vmh = vm->vmhost;
+-   
++
+    vmh->lockedPages = PhysTrack_Alloc(vm);
+    if (!vmh->lockedPages) {
+       return -1;
+@@ -821,8 +824,8 @@ HostIF_AllocMachinePage(void)
+  *
+  * HostIF_FreeMachinePage --
+  *
+- *      Free an anonymous machine page allocated by 
+- *      HostIF_AllocMachinePage().  This page is not tracked in any 
++ *      Free an anonymous machine page allocated by
++ *      HostIF_AllocMachinePage().  This page is not tracked in any
+  *      phystracker.
+  *
+  * Results:
+@@ -1115,7 +1118,7 @@ HostIF_LookupUserMPN(VMDriver *vm, // IN: VMDriver
+  * Results:
+  *      prevents INTR #0x2d (IRQ 13) from being generated --
+  *      assume that Int16 works for interrupt reporting
+- *      
++ *
+  *
+  * Side effects:
+  *      PIC
+@@ -1130,7 +1133,7 @@ HostIF_InitFP(VMDriver *vm)  // IN:
+ 
+    uint8 val = inb(0xA1);
+ 
+-   if (!(val & mask)) { 
++   if (!(val & mask)) {
+       val = val | mask;
+       outb(val, 0xA1);
+    }
+@@ -1146,7 +1149,7 @@ HostIF_InitFP(VMDriver *vm)  // IN:
+  *      If ppages is NULL, pages are only marked as dirty.
+  *
+  * Results:
+- *      Zero on success, non-zero on failure. 
++ *      Zero on success, non-zero on failure.
+  *
+  * Side effects:
+  *      None
+@@ -1181,11 +1184,11 @@ HostIFGetUserPages(void *uvAddr,          // IN
+  *
+  * HostIF_IsLockedByMPN --
+  *
+- *      Checks if mpn was locked using allowMultipleMPNsPerVA.  
++ *      Checks if mpn was locked using allowMultipleMPNsPerVA.
+  *
+  * Results:
+  *      TRUE if mpn is present in the physTracker.
+- *      
++ *
+  *
+  * Side effects:
+  *     None.
+@@ -1307,7 +1310,7 @@ HostIF_UnlockPage(VMDriver *vm,  // IN:
+ 
+    vpn = VA_2_VPN((VA)addr);
+    e = MemTrack_LookupVPN(vm->memtracker, vpn);
+-    
++
+    if (e == NULL) {
+       return PAGE_UNLOCK_NOT_TRACKED;
+    }
+@@ -1353,7 +1356,7 @@ HostIF_UnlockPageByMPN(VMDriver *vm, // IN: VMDriver
+    {
+       void *va = VA64ToPtr(uAddr);
+       MemTrackEntry *e;
+-      
++
+       /*
+        * Verify for debugging that VA and MPN make sense.
+        * PgtblVa2MPN() can fail under high memory pressure.
+@@ -1371,7 +1374,7 @@ HostIF_UnlockPageByMPN(VMDriver *vm, // IN: VMDriver
+       }
+ 
+       /*
+-       * Verify that this MPN was locked with 
++       * Verify that this MPN was locked with
+        * HostIF_LockPage(allowMultipleMPNsPerVA = TRUE).
+        * That means that this MPN should not be in the MemTracker.
+        */
+@@ -1384,7 +1387,7 @@ HostIF_UnlockPageByMPN(VMDriver *vm, // IN: VMDriver
+          return PAGE_UNLOCK_MISMATCHED_TYPE;
+       }
+    }
+-#endif 
++#endif
+ 
+    HOST_UNLOCK_PFN_BYMPN(vm, mpn);
+ 
+@@ -1392,7 +1395,7 @@ HostIF_UnlockPageByMPN(VMDriver *vm, // IN: VMDriver
+ }
+ 
+ 
+-static void 
++static void
+ UnlockEntry(void *clientData,         // IN:
+             MemTrackEntry *entryPtr)  // IN:
+ {
+@@ -1455,11 +1458,11 @@ HostIF_FreeAllResources(VMDriver *vm) // IN
+  *
+  * HostIF_AllocKernelMem
+  *
+- *      Allocate some kernel memory for the driver. 
++ *      Allocate some kernel memory for the driver.
+  *
+  * Results:
+- *      The address allocated or NULL on error. 
+- *      
++ *      The address allocated or NULL on error.
++ *
+  *
+  * Side effects:
+  *      memory is malloced
+@@ -1471,8 +1474,8 @@ HostIF_AllocKernelMem(size_t size,  // IN:
+                       int wired)    // IN:
+ {
+    void * ptr = kmalloc(size, GFP_KERNEL);
+-   
+-   if (ptr == NULL) { 
++
++   if (ptr == NULL) {
+       Warning("%s failed (size=%p)\n", __func__, (void*)size);
+    }
+ 
+@@ -1500,7 +1503,7 @@ void *
+ HostIF_AllocPage(void)
+ {
+    VA kvAddr;
+-   
++
+    kvAddr = __get_free_page(GFP_KERNEL);
+    if (kvAddr == 0) {
+       Warning("%s: __get_free_page() failed\n", __func__);
+@@ -1515,7 +1518,7 @@ HostIF_AllocPage(void)
+  *
+  * HostIF_FreeKernelMem
+  *
+- *      Free kernel memory allocated for the driver. 
++ *      Free kernel memory allocated for the driver.
+  *
+  * Results:
+  *      None.
+@@ -1554,7 +1557,7 @@ HostIF_FreePage(void *ptr)  // IN:
+  *      from the kernel without causing the host to die or to be really upset.
+  *
+  * Results:
+- *	The maximum number of pages that can be locked. 
++ *	The maximum number of pages that can be locked.
+  *
+  * Side effects:
+  *      none
+@@ -1582,9 +1585,9 @@ HostIF_EstimateLockedPageLimit(const VMDriver* vm,                // IN
+     * Use the memory information linux exports as of late for a more
+     * precise estimate of locked memory.  All kernel page-related structures
+     * (slab, pagetable) are as good as locked.  Unevictable includes things
+-    * that are explicitly marked as such (like mlock()).  Huge pages are 
+-    * also as good as locked, since we don't use them.  Lastly, without 
+-    * available swap, anonymous pages become locked in memory as well. 
++    * that are explicitly marked as such (like mlock()).  Huge pages are
++    * also as good as locked, since we don't use them.  Lastly, without
++    * available swap, anonymous pages become locked in memory as well.
+     */
+ 
+    unsigned int forHost;
+@@ -1604,7 +1607,7 @@ HostIF_EstimateLockedPageLimit(const VMDriver* vm,                // IN
+    unsigned int swapPages = BYTES_2_PAGES(linuxState.swapSize);
+ 
+    if (anonPages > swapPages) {
+-      lockedPages += anonPages - swapPages; 
++      lockedPages += anonPages - swapPages;
+    }
+    forHost = lockedPages + LOCKED_PAGE_SLACK;
+    if (forHost > totalPhysicalPages) {
+@@ -1649,7 +1652,7 @@ HostIF_Wait(unsigned int timeoutMs)
+  *----------------------------------------------------------------------
+  */
+ 
+-void 
++void
+ HostIF_WaitForFreePages(unsigned int timeoutMs)  // IN:
+ {
+    static unsigned count;
+@@ -1674,20 +1677,20 @@ HostIF_WaitForFreePages(unsigned int timeoutMs)  // IN:
+  *      timeofday to have small drift (due to NTP rate correction, etc).
+  *      We handle this by rebasing the jiffies based monotonic clock
+  *      every second (see HostIFUptimeResyncMono).
+- *      
++ *
+  * Results:
+  *      The uptime, in units of UPTIME_FREQ.  Also returns the jiffies
+  *      value that was used in the monotonic time calculation.
+  *
+  * Side effects:
+- *      May reset the uptime base in the case gettimeofday warp was 
++ *      May reset the uptime base in the case gettimeofday warp was
+  *      detected.
+  *
+  *----------------------------------------------------------------------
+  */
+ 
+ static uint64
+-HostIFReadUptimeWork(unsigned long *j)  // OUT: current jiffies 
++HostIFReadUptimeWork(unsigned long *j)  // OUT: current jiffies
+ {
+    struct timeval tv;
+    uint64 monotime, uptime, upBase, monoBase;
+@@ -1709,14 +1712,14 @@ HostIFReadUptimeWork(unsigned long *j)  // OUT: current jiffies
+ 
+    do_gettimeofday(&tv);
+    upBase = Atomic_Read64(&uptimeState.uptimeBase);
+-   
++
+    monotime = (uint64)(jifs - jifBase) * (UPTIME_FREQ / HZ);
+    monotime += monoBase;
+ 
+    uptime = tv.tv_usec * (UPTIME_FREQ / 1000000) + tv.tv_sec * UPTIME_FREQ;
+    uptime += upBase;
+-   
+-   /* 
++
++   /*
+     * Use the jiffies based monotonic time to sanity check gettimeofday.
+     * If they differ by more than one second, assume the time of day has
+     * been warped, and use the jiffies time to undo (most of) the warp.
+@@ -1728,7 +1731,7 @@ HostIFReadUptimeWork(unsigned long *j)  // OUT: current jiffies
+       uint64 newUpBase = monotime - (uptime - upBase);
+ 
+       attempts++;
+-      if (!Atomic_CMPXCHG64(&uptimeState.uptimeBase, &upBase, &newUpBase) && 
++      if (!Atomic_CMPXCHG64(&uptimeState.uptimeBase, &upBase, &newUpBase) &&
+           attempts < 5) {
+          /* Another thread updated uptimeBase.  Recalculate uptime. */
+          goto retry;
+@@ -1769,7 +1772,7 @@ HostIFUptimeResyncMono(unsigned long data)  // IN: ignored
+    unsigned long jifs;
+    uintptr_t flags;
+ 
+-   /* 
++   /*
+     * Read the uptime and the corresponding jiffies value.  This will
+     * also correct the uptime (which is based on time of day) if needed
+     * before we rebase monotonic time (which is based on jiffies).
+@@ -1777,7 +1780,7 @@ HostIFUptimeResyncMono(unsigned long data)  // IN: ignored
+ 
+    uint64 uptime = HostIFReadUptimeWork(&jifs);
+ 
+-   /* 
++   /*
+     * Every second, recalculate monoBase and jiffiesBase to squash small
+     * drift between gettimeofday and jiffies.  Also, this prevents
+     * (jiffies - jiffiesBase) wrap on 32-bits.
+@@ -1822,8 +1825,8 @@ HostIF_InitUptime(void)
+ 
+    uptimeState.jiffiesBase = jiffies;
+    do_gettimeofday(&tv);
+-   Atomic_Write64(&uptimeState.uptimeBase, 
+-                  -(tv.tv_usec * (UPTIME_FREQ / 1000000) + 
++   Atomic_Write64(&uptimeState.uptimeBase,
++                  -(tv.tv_usec * (UPTIME_FREQ / 1000000) +
+                     tv.tv_sec * UPTIME_FREQ));
+ 
+    init_timer(&uptimeState.timer);
+@@ -1951,7 +1954,7 @@ HostIF_CopyFromUser(void *dst,        // OUT
+  *-----------------------------------------------------------------------------
+  */
+ 
+-int 
++int
+ HostIF_CopyToUser(void *dst,        // OUT
+                   const void *src,  // IN
+                   unsigned int len) // IN
+@@ -1964,15 +1967,15 @@ HostIF_CopyToUser(void *dst,        // OUT
+  *-----------------------------------------------------------------------------
+  *
+  * HostIF_MapCrossPage --
+- *    
+- *    Obtain kernel pointer to crosspage. 
+  *
+- *    We must return a VA that is obtained through a kernel mapping, so that 
++ *    Obtain kernel pointer to crosspage.
++ *
++ *    We must return a VA that is obtained through a kernel mapping, so that
+  *    the mapping never goes away (see bug 29753).
+  *
+- *    However, the LA corresponding to that VA must not overlap with the 
+- *    monitor (see bug 32922). The userland code ensures that by only 
+- *    allocating cross pages from low memory. For those pages, the kernel 
++ *    However, the LA corresponding to that VA must not overlap with the
++ *    monitor (see bug 32922). The userland code ensures that by only
++ *    allocating cross pages from low memory. For those pages, the kernel
+  *    uses a permanent mapping, instead of a temporary one with a high LA.
+  *
+  * Results:
+@@ -2160,7 +2163,7 @@ HostIF_VMLock(VMDriver *vm, // IN
+  *      None
+  *
+  * Side effects:
+- *      Can wake up the thread blocked on this lock. 
++ *      Can wake up the thread blocked on this lock.
+  *
+  *-----------------------------------------------------------------------------
+  */
+@@ -2183,7 +2186,7 @@ HostIF_VMUnlock(VMDriver *vm, // IN
+  * HostIF_VMLockIsHeld --
+  *
+  *      Determine if the per-VM lock is held by the current thread.
+- * 
++ *
+  * Results:
+  *      TRUE if yes
+  *      FALSE if no
+@@ -2239,14 +2242,14 @@ HostIF_VMLockIsHeld(VMDriver *vm) // IN
+  *
+  *----------------------------------------------------------------------
+  */
+- 
++
+ static Bool
+ isVAReadable(VA r)  // IN:
+ {
+    mm_segment_t old_fs;
+    uint32 dummy;
+    int ret;
+-   
++
+    old_fs = get_fs();
+    set_fs(get_ds());
+    r = APICR_TO_ADDR(r, APICR_VERSION);
+@@ -2321,7 +2324,7 @@ ProbeAPIC(VMDriver *vm,   // IN/OUT: driver state
+ 	  Bool setVMPtr)  // IN: set a pointer to the APIC's virtual address
+ {
+    MA ma = APIC_GetMA();
+-   
++
+    if (ma == (MA)-1) {
+       return FALSE;
+    }
+@@ -2422,7 +2425,7 @@ HostIF_APICInit(VMDriver *vm,   // IN:
+  *    Perform the semaphore wait (P) operation, possibly blocking.
+  *
+  * Result:
+- *    1 (which equals MX_WAITNORMAL) if success, 
++ *    1 (which equals MX_WAITNORMAL) if success,
+  *    negated error code otherwise.
+  *
+  * Side-effects:
+@@ -2431,7 +2434,7 @@ HostIF_APICInit(VMDriver *vm,   // IN:
+  *-----------------------------------------------------------------------------
+  */
+ 
+-int   
++int
+ HostIF_SemaphoreWait(VMDriver *vm,   // IN:
+                      Vcpuid vcpuid,  // IN:
+                      uint64 *args)   // IN:
+@@ -2454,7 +2457,7 @@ HostIF_SemaphoreWait(VMDriver *vm,   // IN:
+    {
+       struct poll_wqueues table;
+       unsigned int mask;
+-      
++
+       poll_initwait(&table);
+       current->state = TASK_INTERRUPTIBLE;
+       mask = file->f_op->poll(file, &table.pt);
+@@ -2529,7 +2532,7 @@ HostIF_SemaphoreWait(VMDriver *vm,   // IN:
+  *-----------------------------------------------------------------------------
+  */
+ 
+-void 
++void
+ HostIF_SemaphoreForceWakeup(VMDriver *vm,       // IN:
+                             const VCPUSet *vcs) // IN:
+ {
+@@ -2819,8 +2822,8 @@ HostIF_CallOnEachCPU(void (*func)(void*), // IN: function to call
+  *
+  * HostIF_ReadPage --
+  *
+- *      puts the content of a machine page into a kernel or user mode 
+- *      buffer. 
++ *      puts the content of a machine page into a kernel or user mode
++ *      buffer.
+  *
+  * Results:
+  *      0 on success
+@@ -2851,7 +2854,7 @@ HostIF_ReadPage(MPN mpn,             // MPN of the page
+    if (ptr == NULL) {
+       return -ENOMEM;
+    }
+-   
++
+    if (kernelBuffer) {
+       memcpy(buf, ptr, PAGE_SIZE);
+    } else {
+@@ -2868,7 +2871,7 @@ HostIF_ReadPage(MPN mpn,             // MPN of the page
+  *
+  * HostIF_WritePage --
+  *
+- *      Put the content of a kernel or user mode buffer into a machine 
++ *      Put the content of a kernel or user mode buffer into a machine
+  *      page.
+  *
+  * Results:
+@@ -2998,7 +3001,7 @@ HostIF_GetNextAnonPage(VMDriver *vm, MPN inMPN)
+  * Side effects:
+  *    None.
+  *
+- *---------------------------------------------------------------------- 
++ *----------------------------------------------------------------------
+  */
+ 
+ uint32
+@@ -3016,18 +3019,18 @@ HostIF_GetCurrentPCPU(void)
+  *
+  *      Wake up the fast clock thread.  Can't do this from the timer
+  *      callback, because it holds locks that the scheduling code
+- *      might take. 
++ *      might take.
+  *
+  * Results:
+  *      None.
+- *      
++ *
+  * Side effects:
+  *      None.
+  *
+  *----------------------------------------------------------------------
+  */
+ 
+-static void 
++static void
+ HostIFWakeupClockThread(unsigned long data)  //IN:
+ {
+    wake_up_process(linuxState.fastClockThread);
+@@ -3038,7 +3041,7 @@ HostIFWakeupClockThread(unsigned long data)  //IN:
+  *----------------------------------------------------------------------
+  *
+  * HostIFTimerCallback --
+- *      
++ *
+  *      Schedule a tasklet to wake up the fast clock thread.
+  *
+  * Results:
+@@ -3049,8 +3052,8 @@ HostIFWakeupClockThread(unsigned long data)  //IN:
+  *
+  *----------------------------------------------------------------------
+  */
+- 
+-static enum hrtimer_restart 
++
++static enum hrtimer_restart
+ HostIFTimerCallback(struct hrtimer *timer)  //IN:
+ {
+    tasklet_schedule(&timerTasklet);
+@@ -3063,7 +3066,7 @@ HostIFTimerCallback(struct hrtimer *timer)  //IN:
+  *----------------------------------------------------------------------
+  *
+  * HostIFScheduleHRTimeout --
+- *      
++ *
+  *      Schedule an hrtimer to wake up the fast clock thread.
+  *
+  * Results:
+@@ -3075,7 +3078,7 @@ HostIFTimerCallback(struct hrtimer *timer)  //IN:
+  *----------------------------------------------------------------------
+  */
+ 
+-static void 
++static void
+ HostIFScheduleHRTimeout(ktime_t *expires)  //IN:
+ {
+    struct hrtimer t;
+@@ -3093,7 +3096,7 @@ HostIFScheduleHRTimeout(ktime_t *expires)  //IN:
+    if (hrtimer_active(&t)) {
+       schedule();
+    }
+-   
++
+    hrtimer_cancel(&t);
+    __set_current_state(TASK_RUNNING);
+ }
+@@ -3116,7 +3119,7 @@ HostIFScheduleHRTimeout(ktime_t *expires)  //IN:
+  * Side effects:
+  *    none.
+  *
+- *---------------------------------------------------------------------- 
++ *----------------------------------------------------------------------
+  */
+ 
+ static long
+@@ -3149,7 +3152,7 @@ HostIFDoIoctl(struct file *filp,
+  */
+ 
+ int
+-HostIFStartTimer(Bool rateChanged,  //IN: Did rate change? 
++HostIFStartTimer(Bool rateChanged,  //IN: Did rate change?
+ 		 unsigned int rate, //IN: current clock rate
+                  struct file *filp) //IN: /dev/rtc descriptor
+ {
+@@ -3159,14 +3162,14 @@ HostIFStartTimer(Bool rateChanged,  //IN: Did rate change?
+    int timerPeriod;
+ 
+    if (rateChanged) {
+-      timerPeriod = NSEC_PER_SEC / rate; 
++      timerPeriod = NSEC_PER_SEC / rate;
+       expires = ktime_set(0, timerPeriod);
+       /*
+        * Allow the kernel to expire the timer at its convenience.
+        * ppoll() uses 0.1% of the timeout value.  I think we can
+        * tolerate 1%.
+        */
+-          
++
+       slack = timerPeriod / 100;
+    }
+    set_current_state(TASK_INTERRUPTIBLE);
+@@ -3512,7 +3515,7 @@ HostIF_MapUserMem(VA addr,                  // IN: User memory virtual address
+ 
+    printk(KERN_DEBUG "%s: p = 0x%p, offset = 0x%p, numPagesNeeded = %"FMTSZ"u,"
+           " handleSize = %"FMTSZ"u, mappedAddr = 0x%p\n",
+-          __func__, p, (void *)offset, numPagesNeeded, handleSize, mappedAddr); 
++          __func__, p, (void *)offset, numPagesNeeded, handleSize, mappedAddr);
+ 
+    newHandle->numPages = numPagesNeeded;
+    newHandle->addr = mappedAddr;
+@@ -3548,7 +3551,7 @@ HostIF_UnmapUserMem(VMMappedUserMem *handle) // IN: Handle to mapped memory
+    }
+ 
+    printk(KERN_DEBUG "%s: numPages = %"FMTSZ"u, addr = 0x%p\n",
+-          __func__, handle->numPages, handle->addr); 
++          __func__, handle->numPages, handle->addr);
+ 
+    if (handle->numPages > 1) {
+       vunmap(handle->addr);
+@@ -3600,4 +3603,3 @@ HostIF_SafeRDMSR(unsigned int msr,   // IN
+ 
+    return ret;
+ }
+-
+diff --git a/vmnet-only/userif.c b/vmnet-only/userif.c
+index 94146f6..25a35a0 100644
+--- a/vmnet-only/userif.c
++++ b/vmnet-only/userif.c
+@@ -42,6 +42,10 @@
+ 
+ #include <asm/io.h>
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
++#include <linux/sched/signal.h>
++#endif
++
+ #include "vnetInt.h"
+ #include "compat_skbuff.h"
+ #include "vmnetInt.h"
+@@ -184,13 +188,13 @@ VNetUserIfMapUint32Ptr(VA uAddr,        // IN: pointer to user memory
+  *
+  *    Sets up notification by filling in pollPtr, actPtr, and recvClusterCount
+  *    fields.
+- * 
+- * Results: 
++ *
++ * Results:
+  *    0 on success
+  *    < 0 on failure: the actual value determines the type of failure
+  *
+  * Side effects:
+- *    Fields pollPtr, actPtr, recvClusterCount, pollPage, actPage, and 
++ *    Fields pollPtr, actPtr, recvClusterCount, pollPage, actPage, and
+  *    recvClusterPage are filled in VNetUserIf structure.
+  *
+  *-----------------------------------------------------------------------------
+@@ -280,8 +284,8 @@ VNetUserIfSetupNotify(VNetUserIF *userIf, // IN
+  * VNetUserIfUnsetupNotify --
+  *
+  *      Destroys permanent mapping for notify structure provided by user.
+- * 
+- * Results: 
++ *
++ * Results:
+  *      None.
+  *
+  * Side effects:
+@@ -335,7 +339,7 @@ VNetUserIfUnsetupNotify(VNetUserIF *userIf) // IN
+  *
+  *      Free the user interface port.
+  *
+- * Results: 
++ * Results:
+  *      None.
+  *
+  * Side effects:
+@@ -357,7 +361,7 @@ VNetUserIfFree(VNetJack *this) // IN
+       }
+       dev_kfree_skb(skb);
+    }
+-   
++
+    if (userIf->pollPtr) {
+       VNetUserIfUnsetupNotify(userIf);
+    }
+@@ -381,7 +385,7 @@ VNetUserIfFree(VNetJack *this) // IN
+  *
+  *      This jack is receiving a packet. Take appropriate action.
+  *
+- * Results: 
++ * Results:
+  *      None.
+  *
+  * Side effects:
+@@ -397,12 +401,12 @@ VNetUserIfReceive(VNetJack       *this, // IN
+    VNetUserIF *userIf = (VNetUserIF*)this->private;
+    uint8 *dest = SKB_2_DESTMAC(skb);
+    unsigned long flags;
+-   
++
+    if (!UP_AND_RUNNING(userIf->port.flags)) {
+       userIf->stats.droppedDown++;
+       goto drop_packet;
+    }
+-   
++
+    if (!VNetPacketMatch(dest,
+                         userIf->port.paddr,
+                         (const uint8 *)userIf->port.exactFilter,
+@@ -412,12 +416,12 @@ VNetUserIfReceive(VNetJack       *this, // IN
+       userIf->stats.droppedMismatch++;
+       goto drop_packet;
+    }
+-   
++
+    if (skb_queue_len(&userIf->packetQueue) >= vnet_max_qlen) {
+       userIf->stats.droppedOverflow++;
+       goto drop_packet;
+    }
+-   
++
+    if (skb->len > ETHER_MAX_QUEUED_PACKET) {
+       userIf->stats.droppedLargePacket++;
+       goto drop_packet;
+@@ -441,7 +445,7 @@ VNetUserIfReceive(VNetJack       *this, // IN
+ 
+    wake_up(&userIf->waitQueue);
+    return;
+-   
++
+  drop_packet:
+    dev_kfree_skb(skb);
+ }
+@@ -454,7 +458,7 @@ VNetUserIfReceive(VNetJack       *this, // IN
+  *
+  *      Callback for read operation on this userif entry in vnets proc fs.
+  *
+- * Results: 
++ * Results:
+  *      Length of read operation.
+  *
+  * Side effects:
+@@ -473,21 +477,21 @@ VNetUserIfProcRead(char    *page,  // IN/OUT: buffer to write into
+                                    //      read
+                    void    *data)  // IN: client data - not used
+ {
+-   VNetUserIF *userIf = (VNetUserIF*)data; 
++   VNetUserIF *userIf = (VNetUserIF*)data;
+    int len = 0;
+-   
++
+    if (!userIf) {
+       return len;
+    }
+-   
++
+    len += VNetPrintPort(&userIf->port, page+len);
+-   
++
+    len += sprintf(page+len, "read %u written %u queued %u ",
+                   userIf->stats.read,
+                   userIf->stats.written,
+                   userIf->stats.queued);
+-   
+-   len += sprintf(page+len, 
++
++   len += sprintf(page+len,
+ 		  "dropped.down %u dropped.mismatch %u "
+ 		  "dropped.overflow %u dropped.largePacket %u",
+                   userIf->stats.droppedDown,
+@@ -496,7 +500,7 @@ VNetUserIfProcRead(char    *page,  // IN/OUT: buffer to write into
+ 		  userIf->stats.droppedLargePacket);
+ 
+    len += sprintf(page+len, "\n");
+-   
++
+    *start = 0;
+    *eof   = 1;
+    return len;
+@@ -510,7 +514,7 @@ VNetUserIfProcRead(char    *page,  // IN/OUT: buffer to write into
+  *
+  *      Copy part of datagram to userspace.
+  *
+- * Results: 
++ * Results:
+  *	zero    on success,
+  *	-EFAULT if buffer is an invalid area
+  *
+@@ -547,12 +551,12 @@ VNetCopyDatagram(const struct sk_buff *skb,	// IN: skb to copy
+  *
+  *      Copy part of datagram to userspace doing checksum at same time.
+  *
+- *	Do not mark this function INLINE, it is recursive! With all gcc's 
++ *	Do not mark this function INLINE, it is recursive! With all gcc's
+  *	released up to now (<= gcc-3.3.1) inlining this function just
+  *	consumes 120 more bytes of code and goes completely mad on
+  *	register allocation, storing almost everything in the memory.
+  *
+- * Results: 
++ * Results:
+  *	folded checksum (non-negative value) on success,
+  *	-EINVAL if offset is too big,
+  *	-EFAULT if buffer is an invalid area
+@@ -574,7 +578,7 @@ VNetCsumCopyDatagram(const struct sk_buff *skb,	// IN: skb to copy
+    char *curr = buf;
+    const skb_frag_t *frag;
+ 
+-   /* 
++   /*
+     * Something bad happened. We skip only up to skb->nh.raw, and skb->nh.raw
+     * must be in the header, otherwise we are in the big troubles.
+     */
+@@ -631,7 +635,7 @@ VNetCsumCopyDatagram(const struct sk_buff *skb,	// IN: skb to copy
+  *      Copy complete datagram to the user space. Fill correct checksum
+  *	into the copied datagram if nobody did it yet.
+  *
+- * Results: 
++ * Results:
+  *      On success byte count, on failure -EFAULT.
+  *
+  * Side effects:
+@@ -660,7 +664,7 @@ VNetCopyDatagramToUser(const struct sk_buff *skb,	// IN
+       size_t skl;
+       int csum;
+       u_int16_t csum16;
+-     
++
+       skl = compat_skb_csum_start(skb);
+       if (VNetCopyDatagram(skb, buf, skl)) {
+ 	 return -EFAULT;
+@@ -691,7 +695,7 @@ VNetCopyDatagramToUser(const struct sk_buff *skb,	// IN
+  *      The virtual network's read file operation. Reads the next pending
+  *      packet for this network connection.
+  *
+- * Results: 
++ * Results:
+  *      On success the len of the packet received,
+  *      else if no packet waiting and nonblocking 0,
+  *      else -errno.
+@@ -702,7 +706,7 @@ VNetCopyDatagramToUser(const struct sk_buff *skb,	// IN
+  *----------------------------------------------------------------------
+  */
+ 
+-static int 
++static int
+ VNetUserIfRead(VNetPort    *port, // IN
+                struct file *filp, // IN
+                char        *buf,  // OUT
+@@ -770,7 +774,7 @@ VNetUserIfRead(VNetPort    *port, // IN
+  *      The virtual network's write file operation. Send the raw packet
+  *      to the network.
+  *
+- * Results: 
++ * Results:
+  *      On success the count of bytes written else errno.
+  *
+  * Side effects:
+@@ -779,7 +783,7 @@ VNetUserIfRead(VNetPort    *port, // IN
+  *----------------------------------------------------------------------
+  */
+ 
+-static int 
++static int
+ VNetUserIfWrite(VNetPort    *port, // IN
+                 struct file *filp, // IN
+                 const char  *buf,  // IN
+@@ -791,8 +795,8 @@ VNetUserIfWrite(VNetPort    *port, // IN
+    /*
+     * Check size
+     */
+-   
+-   if (count < sizeof (struct ethhdr) || 
++
++   if (count < sizeof (struct ethhdr) ||
+        count > ETHER_MAX_QUEUED_PACKET) {
+       return -EINVAL;
+    }
+@@ -809,25 +813,25 @@ VNetUserIfWrite(VNetPort    *port, // IN
+    /*
+     * Allocate an sk_buff.
+     */
+-   
++
+    skb = dev_alloc_skb(count + 7);
+    if (skb == NULL) {
+       // XXX obey O_NONBLOCK?
+       return -ENOBUFS;
+    }
+-   
++
+    skb_reserve(skb, 2);
+-   
++
+    /*
+     * Copy the data and send it.
+     */
+-   
++
+    userIf->stats.written++;
+    if (copy_from_user(skb_put(skb, count), buf, count)) {
+       dev_kfree_skb(skb);
+       return -EFAULT;
+    }
+-   
++
+    VNetSend(&userIf->port.jack, skb);
+ 
+    return count;
+@@ -841,7 +845,7 @@ VNetUserIfWrite(VNetPort    *port, // IN
+  *
+  *      XXX
+  *
+- * Results: 
++ * Results:
+  *      0 on success
+  *      -errno on failure
+  *
+@@ -864,8 +868,8 @@ VNetUserIfIoctl(VNetPort      *port,  // IN
+       return -EINVAL;
+    case SIOCSETNOTIFY2:
+ #ifdef VMX86_SERVER
+-      /* 
+-       * This ioctl always return failure on ESX since we cannot map pages into 
++      /*
++       * This ioctl always return failure on ESX since we cannot map pages into
+        * the console os that are from the VMKernel address space which  was the
+        * only case we used this.
+        */
+@@ -908,20 +912,20 @@ VNetUserIfIoctl(VNetPort      *port,  // IN
+       break;
+ 
+    case SIOCSIFFLAGS:
+-      /* 
+-       * Drain queue when interface is no longer active. We drain the queue to 
++      /*
++       * Drain queue when interface is no longer active. We drain the queue to
+        * avoid having old packets delivered to the guest when reneabled.
+        */
+-      
++
+       if (!UP_AND_RUNNING(userIf->port.flags)) {
+          struct sk_buff *skb;
+          unsigned long flags;
+          struct sk_buff_head *q = &userIf->packetQueue;
+-         
++
+          while ((skb = skb_dequeue(q)) != NULL) {
+             dev_kfree_skb(skb);
+          }
+-         
++
+          spin_lock_irqsave(&q->lock, flags);
+          if (userIf->pollPtr) {
+             if (skb_queue_empty(q)) {
+@@ -938,11 +942,11 @@ VNetUserIfIoctl(VNetPort      *port,  // IN
+    case SIOCINJECTLINKSTATE:
+       {
+          uint8 linkUpFromUser;
+-         if (copy_from_user(&linkUpFromUser, (void *)ioarg, 
++         if (copy_from_user(&linkUpFromUser, (void *)ioarg,
+                             sizeof linkUpFromUser)) {
+             return -EFAULT;
+          }
+-         
++
+          if (linkUpFromUser != 0 && linkUpFromUser != 1) {
+             return -EINVAL;
+          }
+@@ -954,7 +958,7 @@ VNetUserIfIoctl(VNetPort      *port,  // IN
+       return -ENOIOCTLCMD;
+       break;
+    }
+-   
++
+    return 0;
+ }
+ 
+@@ -966,7 +970,7 @@ VNetUserIfIoctl(VNetPort      *port,  // IN
+  *
+  *      The virtual network's file poll operation.
+  *
+- * Results: 
++ * Results:
+  *      Return POLLIN if success, else sleep and return 0.
+  *      FIXME: Should not we always return POLLOUT?
+  *
+@@ -982,7 +986,7 @@ VNetUserIfPoll(VNetPort     *port, // IN
+                poll_table   *wait) // IN
+ {
+    VNetUserIF *userIf = (VNetUserIF*)port->jack.private;
+-   
++
+    poll_wait(filp, &userIf->waitQueue, wait);
+    if (!skb_queue_empty(&userIf->packetQueue)) {
+       return POLLIN;
+@@ -997,8 +1001,8 @@ VNetUserIfPoll(VNetPort     *port, // IN
+  * VNetUserIfSetUplinkState --
+  *
+  *      Sends link state change event.
+- * 
+- * Results: 
++ *
++ * Results:
+  *      0 on success, errno on failure.
+  *
+  * Side effects:
+@@ -1040,7 +1044,7 @@ VNetUserIfSetUplinkState(VNetPort *port, uint8 linkUp)
+    event.header.eventId = 0;
+    event.header.classSet = VNET_EVENT_CLASS_UPLINK;
+    event.header.type = VNET_EVENT_TYPE_LINK_STATE;
+-   /* 
++   /*
+     * XXX kind of a hack, vmx will coalesce linkup/down if they come from the
+     * same adapter.
+     */
+@@ -1065,8 +1069,8 @@ VNetUserIfSetUplinkState(VNetPort *port, uint8 linkUp)
+  *
+  *      Create a user level port to the wonderful world of virtual
+  *      networking.
+- * 
+- * Results: 
++ *
++ * Results:
+  *      Errno. Also returns an allocated port to connect to,
+  *      NULL on error.
+  *
+@@ -1082,7 +1086,7 @@ VNetUserIf_Create(VNetPort **ret) // OUT
+    VNetUserIF *userIf;
+    static unsigned id = 0;
+    int retval;
+-   
++
+    userIf = kmalloc(sizeof *userIf, GFP_USER);
+    if (!userIf) {
+       return -ENOMEM;
+@@ -1091,7 +1095,7 @@ VNetUserIf_Create(VNetPort **ret) // OUT
+    /*
+     * Initialize fields.
+     */
+-   
++
+    userIf->port.id = id++;
+ 
+    userIf->port.jack.peer = NULL;
+@@ -1136,7 +1140,7 @@ VNetUserIf_Create(VNetPort **ret) // OUT
+    /*
+     * Rest of fields.
+     */
+-   
++
+    userIf->port.flags = IFF_RUNNING;
+ 
+    memset(userIf->port.paddr, 0, sizeof userIf->port.paddr);
+@@ -1149,13 +1153,12 @@ VNetUserIf_Create(VNetPort **ret) // OUT
+    userIf->port.fileOpWrite = VNetUserIfWrite;
+    userIf->port.fileOpIoctl = VNetUserIfIoctl;
+    userIf->port.fileOpPoll = VNetUserIfPoll;
+-   
++
+    skb_queue_head_init(&(userIf->packetQueue));
+    init_waitqueue_head(&userIf->waitQueue);
+ 
+    memset(&userIf->stats, 0, sizeof userIf->stats);
+-   
++
+    *ret = &userIf->port;
+    return 0;
+ }
+-
