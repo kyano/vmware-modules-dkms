@@ -1,0 +1,32 @@
+diff --git a/vmmon-only/linux/hostif.c b/vmmon-only/linux/hostif.c
+index 80b5787..c80dcbb 100644
+--- a/vmmon-only/linux/hostif.c
++++ b/vmmon-only/linux/hostif.c
+@@ -1595,7 +1595,11 @@ HostIF_EstimateLockedPageLimit(const VMDriver* vm,                // IN
+    unsigned int hugePages = (vm == NULL) ? 0 :
+       BYTES_2_PAGES(vm->memInfo.hugePageBytes);
+    unsigned int lockedPages = global_page_state(NR_PAGETABLE) +
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
++                              global_node_page_state(NR_SLAB_UNRECLAIMABLE) +
++#else
+                               global_page_state(NR_SLAB_UNRECLAIMABLE) +
++#endif
+                               global_page_state(NR_UNEVICTABLE) +
+                               hugePages + reservedPages;
+    unsigned int anonPages =
+diff --git a/vmnet-only/bridge.c b/vmnet-only/bridge.c
+index 8cdaf11..4f11909 100644
+--- a/vmnet-only/bridge.c
++++ b/vmnet-only/bridge.c
+@@ -636,7 +636,11 @@ VNetBridgeReceiveFromVNet(VNetJack        *this, // IN: jack
+ 	 unsigned long flags;
+ 	 int i;
+
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
++	 clone = skb_get(clone);
++#else
+ 	 atomic_inc(&clone->users);
++#endif
+
+ 	 clone->dev = dev;
+ 	 clone->protocol = eth_type_trans(clone, dev);
