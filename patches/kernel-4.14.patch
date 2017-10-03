@@ -1,0 +1,34 @@
+diff --git a/vmmon-only/linux/hostif.c b/vmmon-only/linux/hostif.c
+index 78199da..9239238 100644
+--- a/vmmon-only/linux/hostif.c
++++ b/vmmon-only/linux/hostif.c
+@@ -1516,12 +1516,24 @@ HostIF_EstimateLockedPageLimit(const VMDriver* vm,                // IN
+    unsigned int reservedPages = MEMDEFAULTS_MIN_HOST_PAGES;
+    unsigned int hugePages = (vm == NULL) ? 0 :
+       BYTES_2_PAGES(vm->memInfo.hugePageBytes);
+-   unsigned int lockedPages = global_page_state(NR_PAGETABLE) +
+-                              global_page_state(NR_SLAB_UNRECLAIMABLE) +
+-                              global_page_state(NR_UNEVICTABLE) +
+-                              hugePages + reservedPages;
++   unsigned int lockedPages =
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0)
++      global_zone_page_state(NR_PAGETABLE) +
++#else
++      global_page_state(NR_PAGETABLE) +
++#endif
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
++      global_node_page_state(NR_SLAB_UNRECLAIMABLE) +
++      global_node_page_state(NR_UNEVICTABLE) +
++#else
++      global_page_state(NR_SLAB_UNRECLAIMABLE) +
++      global_page_state(NR_UNEVICTABLE) +
++#endif
++      hugePages + reservedPages;
+    unsigned int anonPages =
+-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 13, 0)
++      global_node_page_state(NR_ANON_MAPPED);
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(4, 8, 0)
+       global_page_state(NR_ANON_MAPPED);
+ #else
+       global_page_state(NR_ANON_PAGES);
