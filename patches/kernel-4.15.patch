@@ -1,0 +1,97 @@
+diff --git a/vmmon-only/linux/driver.c b/vmmon-only/linux/driver.c
+index 3080525..520679f 100644
+--- a/vmmon-only/linux/driver.c
++++ b/vmmon-only/linux/driver.c
+@@ -29,6 +29,10 @@
+ #include <linux/smp.h>
+ #include <linux/wait.h>
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++#include <linux/timer.h>
++#endif
++
+ #include <asm/hw_irq.h> /* for CALL_FUNCTION_VECTOR */
+ 
+ #include "compat_version.h"
+@@ -216,7 +220,11 @@ LinuxDriverEstimateTSCkHz(void)
+  *----------------------------------------------------------------------
+  */
+ static void
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++LinuxDriverEstimateTSCkHzDeferred(struct timer_list *data)
++#else
+ LinuxDriverEstimateTSCkHzDeferred(unsigned long data)
++#endif
+ {
+    LinuxDriverEstimateTSCkHz();
+ }
+@@ -251,9 +259,13 @@ LinuxDriverInitTSCkHz(void)
+    }
+ 
+    LinuxDriverReadTSCAndUptime(&tsckHzStartTime);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++   timer_setup(&tscTimer, LinuxDriverEstimateTSCkHzDeferred, 0);
++#else
+    tscTimer.function = LinuxDriverEstimateTSCkHzDeferred;
+-   tscTimer.expires  = jiffies + 4 * HZ;
+    tscTimer.data     = 0;
++#endif
++   tscTimer.expires  = jiffies + 4 * HZ;
+    add_timer(&tscTimer);
+ }
+ 
+@@ -335,7 +347,9 @@ init_module(void)
+        linuxState.deviceName, linuxState.major, linuxState.minor);
+ 
+    HostIF_InitUptime();
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
+    init_timer(&tscTimer);
++#endif
+    LinuxDriverInitTSCkHz();
+    Vmx86_InitIDList();
+ 
+diff --git a/vmmon-only/linux/hostif.c b/vmmon-only/linux/hostif.c
+index 1a37365..78cdd71 100644
+--- a/vmmon-only/linux/hostif.c
++++ b/vmmon-only/linux/hostif.c
+@@ -44,6 +44,10 @@
+ 
+ #include <linux/smp.h>
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++#include <linux/timer.h>
++#endif
++
+ #include <asm/asm.h>
+ #include <asm/io.h>
+ #include <asm/page.h>
+@@ -1705,7 +1709,11 @@ HostIFReadUptimeWork(unsigned long *j)  // OUT: current jiffies
+  */
+ 
+ static void
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++HostIFUptimeResyncMono(struct timer_list *data)  // IN: ignored
++#else
+ HostIFUptimeResyncMono(unsigned long data)  // IN: ignored
++#endif
+ {
+    unsigned long jifs;
+    uintptr_t flags;
+@@ -1767,8 +1775,12 @@ HostIF_InitUptime(void)
+                   -(tv.tv_usec * (UPTIME_FREQ / 1000000) +
+                     tv.tv_sec * UPTIME_FREQ));
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++   timer_setup(&uptimeState.timer, HostIFUptimeResyncMono, 0);
++#else
+    init_timer(&uptimeState.timer);
+    uptimeState.timer.function = HostIFUptimeResyncMono;
++#endif
+    mod_timer(&uptimeState.timer, jiffies + HZ);
+ }
+ 
+@@ -3328,4 +3340,3 @@ HostIF_SafeRDMSR(unsigned int msr,   // IN
+ 
+    return err;
+ }
+-
