@@ -1,0 +1,17 @@
+diff --git a/vmmon-only/linux/hostif.c b/vmmon-only/linux/hostif.c
+index b793539..8737ef6 100644
+--- a/vmmon-only/linux/hostif.c
++++ b/vmmon-only/linux/hostif.c
+@@ -2373,7 +2373,12 @@ HostIF_SemaphoreWait(VMDriver *vm,   // IN:
+ 
+       poll_initwait(&table);
+       current->state = TASK_INTERRUPTIBLE;
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 18, 0)
++      mask = vfs_poll(file, &table.pt);
++#else
+       mask = file->f_op->poll(file, &table.pt);
++#endif
++
+       if (!(mask & (POLLIN | POLLERR | POLLHUP))) {
+          vm->vmhost->vcpuSemaTask[vcpuid] = current;
+          schedule_timeout(timeoutms * HZ / 1000);  // convert to Hz
