@@ -4,7 +4,7 @@ index 1905aa4..d06956f 100644
 +++ b/vmmon-only/linux/driver.c
 @@ -96,7 +96,9 @@ long LinuxDriver_Ioctl(struct file *filp, u_int iocmd,
                         unsigned long ioarg);
- 
+
  static int LinuxDriver_Close(struct inode *inode, struct file *filp);
 -#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
@@ -16,7 +16,7 @@ index 1905aa4..d06956f 100644
 @@ -594,7 +596,11 @@ LinuxDriver_Close(struct inode *inode, // IN
   *-----------------------------------------------------------------------------
   */
- 
+
 +#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0)
 +static vm_fault_t
 +#else
@@ -26,38 +26,38 @@ index 1905aa4..d06956f 100644
  LinuxDriverFault(struct vm_fault *fault)     //IN/OUT
  #else
 diff --git a/vmmon-only/linux/hostif.c b/vmmon-only/linux/hostif.c
-index b793539..2404001 100644
+index 636890b..4ce415a 100644
 --- a/vmmon-only/linux/hostif.c
 +++ b/vmmon-only/linux/hostif.c
-@@ -2164,7 +2164,7 @@ isVAReadable(VA r)  // IN:
+@@ -2180,7 +2180,7 @@ isVAReadable(VA r)  // IN:
     int ret;
- 
+
     old_fs = get_fs();
 -   set_fs(get_ds());
 +   set_fs(KERNEL_DS);
     r = APICR_TO_ADDR(r, APICR_VERSION);
     ret = HostIF_CopyFromUser(&dummy, r, sizeof dummy);
     set_fs(old_fs);
-@@ -2365,7 +2365,7 @@ HostIF_SemaphoreWait(VMDriver *vm,   // IN:
+@@ -2381,7 +2381,7 @@ HostIF_SemaphoreWait(VMDriver *vm,   // IN:
     }
- 
+
     old_fs = get_fs();
 -   set_fs(get_ds());
 +   set_fs(KERNEL_DS);
- 
+
     {
        struct poll_wqueues table;
-@@ -2494,7 +2494,7 @@ HostIF_SemaphoreSignal(uint64 *args)  // IN:
+@@ -2510,7 +2510,7 @@ HostIF_SemaphoreSignal(uint64 *args)  // IN:
     }
- 
+
     old_fs = get_fs();
 -   set_fs(get_ds());
 +   set_fs(KERNEL_DS);
- 
+
     /*
      * Always write sizeof(uint64) bytes. This works fine for eventfd and
-@@ -3330,4 +3330,3 @@ HostIF_SafeRDMSR(unsigned int msr,   // IN
- 
+@@ -3350,4 +3350,3 @@ HostIF_SafeRDMSR(unsigned int msr,   // IN
+
     return err;
  }
 -
