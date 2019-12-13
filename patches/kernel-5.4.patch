@@ -1,0 +1,40 @@
+diff --git a/vmnet-only/userif.c b/vmnet-only/userif.c
+index 4f28232..94a3879 100644
+--- a/vmnet-only/userif.c
++++ b/vmnet-only/userif.c
+@@ -563,20 +563,35 @@ VNetCsumCopyDatagram(const struct sk_buff *skb,	// IN: skb to copy
+    for (frag = skb_shinfo(skb)->frags;
+ 	frag != skb_shinfo(skb)->frags + skb_shinfo(skb)->nr_frags;
+ 	frag++) {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
++      if (skb_frag_size(frag) > 0) {
++#else
+       if (frag->size > 0) {
++#endif
+ 	 unsigned int tmpCsum;
+ 	 const void *vaddr;
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
++	 vaddr = kmap(skb_frag_page(frag));
++	 tmpCsum = csum_and_copy_to_user(vaddr + skb_frag_off(frag),
++					 curr, skb_frag_size(frag), 0, &err);
++	 kunmap(skb_frag_page(frag));
++#else
+ 	 vaddr = compat_kmap(frag->page);
+ 	 tmpCsum = csum_and_copy_to_user(vaddr + frag->page_offset,
+ 					 curr, frag->size, 0, &err);
+ 	 compat_kunmap(frag->page);
++#endif
+ 
+ 	 if (err) {
+ 	    return err;
+ 	 }
+ 	 csum = csum_block_add(csum, tmpCsum, curr - buf);
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
++	 curr += skb_frag_size(frag);
++#else
+ 	 curr += frag->size;
++#endif
+       }
+    }
+ 
