@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998,2014 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998,2014,2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,16 +24,15 @@
  *    Depending on configuration phystracker provides either 2-level or
  *    3-level structure to track whether page (specified by its MPN) is
  *    locked or no.  Linux uses 3-level structures with top limit of
- *    1TB (32bit) or 16TB (64bit).  Windows use 2-level structures
- *    ready to hold 128GB (32bit) or 2TB (64bit) of memory.  On Mac
- *    limit is 2-level 128GB.
+ *    1TB (32bit) or 16TB (64bit).  Windows and Mac use 2-level structures
+ *    ready to hold 128GB (32bit) or 2TB (64bit) of memory.
  *
  *    2-level phystracker is built on top of 3-level one by collapsing
  *    middle level.
  */
 
 
-#ifdef linux
+#ifdef __linux__
 /* Must come before any kernel header file --hpreg */
 #   include "driver-config.h"
 
@@ -50,9 +49,7 @@
 #define BYTES_PER_ENTRY      (PAGE_SIZE)
 #define PHYSTRACK_L3_ENTRIES (8 * BYTES_PER_ENTRY) /* 128MB */
 
-#if defined(WINNT_DDK)
-#define PHYSTRACK_L1_ENTRIES (PHYSTRACK_MAX_SUPPORTED_GB * 8)
-#elif defined(__linux__)
+#if defined(__linux__)
 #define PHYSTRACK_L2_ENTRIES (BYTES_PER_ENTRY / sizeof(void *)) /* 64GB or 128GB */
 /*
  * Currently MPN is 32 bits.  15 bits are in L3, 9 bits are in L2,
@@ -60,7 +57,7 @@
  */
 #define PHYSTRACK_L1_ENTRIES (256) /* 16TB. */
 #else
-#define PHYSTRACK_L1_ENTRIES ((128 + 4) * 8) /* 128 GB */
+#define PHYSTRACK_L1_ENTRIES (PHYSTRACK_MAX_SUPPORTED_GB * 8)
 #endif
 
 #ifndef PHYSTRACK_L2_ENTRIES
@@ -491,5 +488,34 @@ PhysTrack_GetNext(const PhysTracker *tracker, // IN
       p2 = 0; p3 = 0;
    }
    return INVALID_MPN;
+}
+
+
+/*
+ *----------------------------------------------------------------------
+ *
+ * PhysTrack_GetNumTrackedPages --
+ *
+ *      Returns the total number of tracked pages
+ *
+ * Side effects:
+ *      None.
+ *
+ *----------------------------------------------------------------------
+ */
+
+PageCnt
+PhysTrack_GetNumTrackedPages(const PhysTracker *tracker)
+{
+   PageCnt numTrackedMPNs = 0;
+   MPN nextMPN;
+   ASSERT(tracker);
+   ASSERT(HostIF_VMLockIsHeld(tracker->vm));
+   nextMPN = PhysTrack_GetNext(tracker, INVALID_MPN);
+   while (nextMPN != INVALID_MPN) {
+      numTrackedMPNs++;
+      nextMPN = PhysTrack_GetNext(tracker, nextMPN);
+   }
+   return numTrackedMPNs;
 }
 

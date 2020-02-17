@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2004-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2004-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -159,10 +159,10 @@
 #define VT_ENCODING_RSVD               0xffff9000
 
 /*
- * The highest index of any currently defined field is 25, for
- * TSC_MULTIPLIER.
+ * The highest index of any currently defined field is 27, for
+ * ENCLV_EXITING_BITMAP.
  */
-#define VT_ENCODING_MAX_INDEX                  25
+#define VT_ENCODING_MAX_INDEX                  27
 
 enum {
 #define VMCS_FIELD(_name, _val, ...) VT_VMCS_##_name = _val,
@@ -286,14 +286,16 @@ enum {
    VMX_CPU2(INVPCID,            12)                      \
    VMX_CPU2(VMFUNC,             13)                      \
    VMX_CPU2(VMCS_SHADOW,        14)                      \
-   VMX_CPU2(ENCL,               15)                      \
+   VMX_CPU2(ENCLS,              15)                      \
    VMX_CPU2(RDSEED,             16)                      \
    VMX_CPU2(PML,                17)                      \
    VMX_CPU2(EPT_VIOL_VE,        18)                      \
    VMX_CPU2(PT_SUPPRESS_NR_BIT, 19)                      \
    VMX_CPU2(XSAVES,             20)                      \
    VMX_CPU2(EPT_MBX,            22)                      \
-   VMX_CPU2(TSC_SCALING,        25)
+   VMX_CPU2(TSC_SCALING,        25)                      \
+   VMX_CPU2(ENCLV,              28)                      \
+   VMX_CPU2(EPC_VIRT_EXT,       29)
 
 #define VMX_PROCBASED_CTLS2_CAP                          \
         VMX_PROCBASED_CTLS2_CAP_NDA                      \
@@ -640,7 +642,7 @@ enum {
 #define VT_HOLDOFF_MOVSS       0x00000002
 #define VT_HOLDOFF_SMI         0x00000004
 #define VT_HOLDOFF_NMI         0x00000008
-#define VT_HOLDOFF_ENCLAVE     0x00000010
+#define VT_ENCLAVE_INTR        0x00000010
 #define VT_HOLDOFF_INST        (VT_HOLDOFF_STI | VT_HOLDOFF_MOVSS)
 #define VT_HOLDOFF_RSV         0xFFFFFFE0
 
@@ -668,6 +670,7 @@ enum {
 #define VT_EPT_QUAL_GUEST_RW           (1 << 10)
 #define VT_EPT_QUAL_GUEST_NX           (1 << 11)
 #define VT_EPT_QUAL_NMIUNMASK          (1 << 12)
+#define VT_EPT_QUAL_SYNTH_PML_FULL     (1 << 31)
 
 
 /* IOIO Qualification */
@@ -685,6 +688,12 @@ enum {
 #define VT_GUESTFAIL_QUAL_PDPTE        2
 #define VT_GUESTFAIL_QUAL_NMI          3
 #define VT_GUESTFAIL_QUAL_LINK         4
+
+/* SGX conflict VM-exit Qualification Codes */
+#define VT_SGX_TRACKING_RESOURCE_CONFLICT     0
+#define VT_SGX_TRACKING_REFERENCE_CONFLICT    1
+#define VT_SGX_EPC_PAGE_CONFLICT_EXCEPTION    2
+#define VT_SGX_EPC_PAGE_CONFLICT_ERROR        3
 
 /* VMX abort indicators. */
 
@@ -709,7 +718,8 @@ enum {
 #define VT_REQUIRED_PINBASED_CTLS                      \
    (VT_PINBASED_CTLS_DEFAULT1                        | \
     VT_VMCS_PIN_VMEXEC_CTL_EXTINT_EXIT               | \
-    VT_VMCS_PIN_VMEXEC_CTL_NMI_EXIT)
+    VT_VMCS_PIN_VMEXEC_CTL_NMI_EXIT                  | \
+    VT_VMCS_PIN_VMEXEC_CTL_VNMI)
 
 #define VT_REQUIRED_PROCBASED_CTLS                     \
    (VT_PROCBASED_CTLS_DEFAULT1                       | \
@@ -725,6 +735,7 @@ enum {
     VT_VMCS_CPU_VMEXEC_CTL_LDCR8                     | \
     VT_VMCS_CPU_VMEXEC_CTL_STCR8                     | \
     VT_VMCS_CPU_VMEXEC_CTL_TPR_SHADOW                | \
+    VT_VMCS_CPU_VMEXEC_CTL_VNMI_WINDOW               | \
     VT_VMCS_CPU_VMEXEC_CTL_MONITOR)
 
 #define VT_REQUIRED_EXIT_CTLS                          \
@@ -752,6 +763,10 @@ enum {
 #define VT_TSQUAL_IRET  1
 #define VT_TSQUAL_JMP   2
 #define VT_TSQUAL_GATE  3
+
+/* PML Constants */
+#define VT_MAX_PML_INDEX   511
+#define VT_PML_ENTRY_MASK  (~(QWORD(0, PAGE_MASK)))
 
 typedef union {
    struct {
@@ -814,6 +829,23 @@ typedef union {
    } bits;
    uint32 flat;
 } VTIOQualifier;
+
+#define VT_APICACCESSQUAL_TYPE_LINEAR_READ  0
+#define VT_APICACCESSQUAL_TYPE_LINEAR_WRITE 1
+#define VT_APICACCESSQUAL_TYPE_LINEAR_INSTR 2
+#define VT_APICACCESSQUAL_TYPE_LINEAR_EVENT 3
+#define VT_APICACCESSQUAL_TYPE_PHYS_EVENT   10
+#define VT_APICACCESSQUAL_TYPE_PHYS_INSTR   15
+
+/* APIC Access intercept qualifier */
+typedef union {
+   struct {
+      uint64 offset:12;
+      uint64 type  :4;
+      uint64 rsvd  :48;
+   } bits;
+   uint64 flat;
+} VTAPICAccessQualifier;
 
 #define VT_IINFO_SCALE1    0
 #define VT_IINFO_SCALE2    1
@@ -1053,7 +1085,7 @@ VT_MBXSupportedFromFeatures(uint64 secondary)
 static INLINE Bool
 VT_EnabledCPU(void)
 {
-   return VT_EnabledFromFeatures(__GET_MSR(MSR_FEATCTL));
+   return VT_EnabledFromFeatures(X86MSR_GetMSR(MSR_FEATCTL));
 }
 
 
@@ -1074,19 +1106,14 @@ VT_EnabledCPU(void)
 static INLINE Bool
 VT_SupportedCPU(void)
 {
-   if (__GET_MSR(MSR_VMX_BASIC) & MSR_VMX_BASIC_TRUE_CTLS) {
-      return VT_SupportedFromFeatures(__GET_MSR(MSR_VMX_TRUE_PINBASED_CTLS),
-                                      __GET_MSR(MSR_VMX_TRUE_PROCBASED_CTLS),
-                                      __GET_MSR(MSR_VMX_TRUE_ENTRY_CTLS),
-                                      __GET_MSR(MSR_VMX_TRUE_EXIT_CTLS),
-                                      __GET_MSR(MSR_VMX_BASIC));
-   } else {
-      return VT_SupportedFromFeatures(__GET_MSR(MSR_VMX_PINBASED_CTLS),
-                                      __GET_MSR(MSR_VMX_PROCBASED_CTLS),
-                                      __GET_MSR(MSR_VMX_ENTRY_CTLS),
-                                      __GET_MSR(MSR_VMX_EXIT_CTLS),
-                                      __GET_MSR(MSR_VMX_BASIC));
-   }
+
+   /* Bug 1914425 - VMM no longer supports CPUs without TRUE_xxx_CTLS */
+   return (X86MSR_GetMSR(MSR_VMX_BASIC) & MSR_VMX_BASIC_TRUE_CTLS) != 0 &&
+          VT_SupportedFromFeatures(X86MSR_GetMSR(MSR_VMX_TRUE_PINBASED_CTLS),
+                                   X86MSR_GetMSR(MSR_VMX_TRUE_PROCBASED_CTLS),
+                                   X86MSR_GetMSR(MSR_VMX_TRUE_ENTRY_CTLS),
+                                   X86MSR_GetMSR(MSR_VMX_TRUE_EXIT_CTLS),
+                                   X86MSR_GetMSR(MSR_VMX_BASIC));
 }
 
 #endif /* } !defined(USERLEVEL) */
@@ -1140,6 +1167,5 @@ VT_ConfigMSRNum(unsigned index)
    ASSERT(index < NUM_VMX_MSRS);
    return MSR_VMX_BASIC + index;
 }
-
 
 #endif /* _X86VT_H_ */

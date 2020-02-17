@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998, 2016-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998, 2016-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,7 +16,7 @@
  *
  *********************************************************/
 
-#ifdef linux
+#ifdef __linux__
 /* Must come before any kernel header file --hpreg */
 #   include "driver-config.h"
 
@@ -34,10 +34,13 @@
 #include "x86svm.h"
 #include "x86vt.h"
 
-uint32 cpuidFeatures;
-static CpuidVendor vendor = CPUID_NUM_VENDORS;
-static uint32 version;
-static Bool hasSpecCtrl;
+uint32      cpuidFeatures;
+CpuidVendor cpuidVendor = CPUID_NUM_VENDORS;
+uint32      cpuidVersion;
+Bool        hostSupportsVT;
+Bool        hostSupportsSVM;
+Bool        hostHasSpecCtrl;
+Bool        hostSupportsXSave;
 
 
 /*
@@ -80,8 +83,9 @@ CPUID_Init(void)
    char name[16];
 
    __GET_CPUID(1, &regs);
-   version = regs.eax;
+   cpuidVersion = regs.eax;
    cpuidFeatures = regs.edx;
+   hostSupportsXSave = CPUID_ISSET(1, ECX, XSAVE, regs.ecx);
 
    __GET_CPUID(0, &regs);
    ptr = (uint32 *)name;
@@ -91,33 +95,25 @@ CPUID_Init(void)
    ptr[3] = 0;
 
    if (strcmp(name, CPUID_INTEL_VENDOR_STRING_FIXED) == 0) {
-      vendor = CPUID_VENDOR_INTEL;
+      cpuidVendor = CPUID_VENDOR_INTEL;
    } else if (strcmp(name, CPUID_AMD_VENDOR_STRING_FIXED) == 0) {
-      vendor = CPUID_VENDOR_AMD;
+      cpuidVendor = CPUID_VENDOR_AMD;
    } else if (strcmp(name, CPUID_CYRIX_VENDOR_STRING_FIXED) == 0) {
-      vendor = CPUID_VENDOR_CYRIX;
+      cpuidVendor = CPUID_VENDOR_CYRIX;
+   } else if (strcmp(name, CPUID_HYGON_VENDOR_STRING_FIXED) == 0) {
+      cpuidVendor = CPUID_VENDOR_HYGON;
    } else {
       Warning("VMMON CPUID: Unrecognized CPU\n");
-      vendor = CPUID_VENDOR_UNKNOWN;
+      cpuidVendor = CPUID_VENDOR_UNKNOWN;
    }
 
    __GET_CPUID2(7, 0, &regs);
-   hasSpecCtrl = vendor == CPUID_VENDOR_INTEL && ((regs.edx >> 26) & 0x3) != 0;
-}
+   hostHasSpecCtrl = cpuidVendor == CPUID_VENDOR_INTEL &&
+                     (CPUID_ISSET(7, EDX, IBRSIBPB, regs.edx) ||
+                      CPUID_ISSET(7, EDX, STIBP, regs.edx));
 
-
-CpuidVendor
-CPUID_GetVendor(void)
-{
-   ASSERT(vendor != CPUID_NUM_VENDORS);
-   return vendor;
-}
-
-
-uint32
-CPUID_GetVersion(void)
-{
-   return version;
+   hostSupportsVT = VT_CapableCPU();
+   hostSupportsSVM = SVM_CapableCPU();
 }
 
 
@@ -154,52 +150,4 @@ CPUID_AddressSizeSupported(void)
    }
 
    return result;
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * CPUID_HostSupportsHV --
- *
- *     Determine whether processor supports hardware virtualization.  Two
- *     possibilities are valid: VMX on Intel or SVM on AMD.
- *
- * Results:
- *     True iff the processor supports the required features.
- *
- * Side effects:
- *     None.
- *
- *-----------------------------------------------------------------------------
- */
-
-Bool
-CPUID_HostSupportsHV(void)
-{
-   return (vendor == CPUID_VENDOR_AMD   && SVM_CapableCPU()) ||
-          (vendor == CPUID_VENDOR_INTEL && VT_CapableCPU());
-}
-
-
-/*
- *-----------------------------------------------------------------------------
- *
- * CPUID_HostSupportsSpecCtrl --
- *
- *     Determine whether the processor supports MSR_SPEC_CTRL.
- *
- * Results:
- *     True iff the processor supports the required features.
- *
- * Side effects:
- *     None.
- *
- *-----------------------------------------------------------------------------
- */
-
-Bool
-CPUID_HostSupportsSpecCtrl(void)
-{
-   return hasSpecCtrl;
 }

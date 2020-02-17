@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2001 VMware, Inc. All rights reserved.
+ * Copyright (C) 2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,26 +16,32 @@
  *
  *********************************************************/
 
-
 /*
- * hashFunc.c --
+ * sharedAreaType.h --
  *
- *      The core implementation lives in lib/shared/hashFunc.h because it
- *      is shared by the vmkernel and vmmon.
+ *      This file contains shared area type definitions.
  */
 
-#include "hashFunc.h"
+#ifndef _SHAREDAREATYPE_H_
+#define _SHAREDAREATYPE_H_
 
-/*
- * Wrappers
- */
+#define INCLUDE_ALLOW_VMCORE
+#define INCLUDE_ALLOW_VMKERNEL
+#define INCLUDE_ALLOW_VMX
+#define INCLUDE_ALLOW_VMMON
+#define INCLUDE_ALLOW_USERLEVEL
+#define INCLUDE_ALLOW_MODULE
 
-// arbitrary constant
-#define HASH_INIT_VALUE (42)
+#include "includeCheck.h"
 
-// 64-bit hash for one 4K page
-uint64
-HashFunc_HashPage(const void *addr)
-{
-   return hash2((uint64 *)addr, PAGE_SIZE / sizeof (uint64), HASH_INIT_VALUE);
-}
+typedef enum {
+   SHARED_AREA_PER_VM_VMX = 0,
+   SHARED_AREA_INTER_VCPU_VMX,
+   SHARED_AREA_PER_VCPU_VMX,
+   SHARED_AREA_PER_VM,
+   SHARED_AREA_INTER_VCPU,
+   SHARED_AREA_PER_VCPU,
+   NUM_SHARED_AREAS
+} SharedAreaType;
+
+#endif // _SHAREDAREATYPE_H_

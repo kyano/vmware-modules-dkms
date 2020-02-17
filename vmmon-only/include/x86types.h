@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -62,13 +62,6 @@ typedef uint64 VM_EPTE;
  * Registers
  */
 
-typedef union SharedReg64 {
-   Reg8  reg8[2];
-   Reg16 reg16;
-   Reg32 reg32;
-   Reg64 reg64;
-} SharedReg64;
-
 typedef union SharedUReg64 {
    UReg8  ureg8[2];
    UReg16 ureg16;
@@ -86,11 +79,12 @@ typedef uint16 Selector;
  */
 
 
+#define RSP_NUM_ENTRIES 3
 #define IST_NUM_ENTRIES 8
 #pragma pack(push, 1)
 typedef struct Task64 {
    uint32     reserved0;
-   uint64     rsp[3];   // Stacks for CPL 0-2.
+   uint64     rsp[RSP_NUM_ENTRIES];   // Stacks for CPL 0-2.
    uint64     ist[IST_NUM_ENTRIES];   // ist[0] is reserved.
    uint64     reserved1;
    uint16     reserved2;
@@ -177,11 +171,7 @@ typedef Task32 Task;
 
 #pragma pack(push, 1)
 typedef struct {
-#if defined(VMM) || defined(COREQUERY)
-   uint64 va;
-#else
-   uint32 va;
-#endif
+   uint64   va;
    Selector seg;
 } FarPtr;
 #pragma pack(pop)
@@ -466,5 +456,13 @@ typedef struct ExcFrame64ForCopy {
    uint16      ss, __ssu[3];         // Pushed by HW.
 } ExcFrame64ForCopy;
 #pragma pack(pop)
+
+/*
+ * Layout of the stack for performing a 64 bit lret instruction.
+ */
+typedef struct LretFrame64 {
+   uint64 rip;
+   uint64 cs;
+} LretFrame64;
 
 #endif // ifndef _X86TYPES_H_

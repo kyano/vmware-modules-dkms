@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2003-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2003-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -37,15 +37,51 @@
 #include "vm_basic_types.h" // For INLINE.
 
 /* Checks for FreeBSD, filtering out VMKERNEL. */
-#define __IS_FREEBSD__ (!defined(VMKERNEL) && defined(__FreeBSD__))
+#if !defined(VMKERNEL) && defined(__FreeBSD__)
+#define __IS_FREEBSD__ 1
+#else
+#define __IS_FREEBSD__ 0
+#endif
 #define __IS_FREEBSD_VER__(ver) (__IS_FREEBSD__ && __FreeBSD_version >= (ver))
 
+/*
+ * <stddef.h> provides definitions for:
+ *   NULL, offsetof
+ * References:
+ *   C90 7.17, C99 7.19, C11 7.19
+ */
+#if !defined(VMKERNEL)
+#  include <stddef.h>
+#else
+   /*
+    * Vmkernel's bogus __FreeBSD__ value causes gcc <stddef.h> to break.
+    * Work around by doing similar things. Bug 2116887 and 2229647.
+    */
+#  ifndef offsetof
+      /*
+       * We use the builtin offset for gcc/clang, except when we're running
+       * under the vmkernel's GDB macro preprocessor, since gdb doesn't
+       * understand __builtin_offsetof.
+       */
+#     if defined VMKERNEL_GDB_MACRO_BUILDER
+#        define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#     else
+#        define offsetof __builtin_offsetof
+#     endif
+#  endif
+
+#  ifndef NULL
+#     ifdef  __cplusplus
+#        define NULL    0
+#     else
+#        define NULL    ((void *)0)
+#     endif
+#  endif
+
+#endif  // VMKERNEL
+
 #if defined _WIN32 && defined USERLEVEL
-   #include <stddef.h>  /*
-                         * We redefine offsetof macro from stddef; make 
-                         * sure that it's already defined before we do that.
-                         */
-   #include <windows.h>	// for Sleep() and LOWORD() etc.
+   #include <windows.h> // for Sleep() and LOWORD() etc.
    #undef GetFreeSpace  // Unpollute preprocessor namespace.
 #endif
 
@@ -54,42 +90,8 @@
  * Simple macros
  */
 
-#ifndef vmw_offsetof
-#define vmw_offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
-#endif
-
-#if (defined __APPLE__ || defined __FreeBSD__) && \
-    (!defined KERNEL && !defined _KERNEL && !defined VMKERNEL && !defined __KERNEL__)
-#   include <stddef.h>
-#else
-#ifndef offsetof
-#define VMW_DEFINED_OFFSETOF
-
-/*
- * XXX While the _WIN32 implementation appears to be identical to vmw_offsetof
- * in terms of behavior, they need to be separate to match verbatim the
- * definition used by the respective compilers, to avoid a redefinition warning.
- *
- * This is necessary until we eliminate the inclusion of <windows.h> above.
- */
-#ifdef _WIN32
-#define offsetof(s,m)   (size_t)&(((s *)0)->m)
-/*
- * We use the builtin offset for gcc/clang, except when we're running under the
- * vmkernel's GDB macro preprocessor, since gdb doesn't understand
- * __builtin_offsetof.
- */
-#elif defined __GNUC__ && !defined VMKERNEL_GDB_MACRO_BUILDER
-#define offsetof __builtin_offsetof
-#else
-#define offsetof vmw_offsetof
-#endif
-
-#endif // offsetof
-#endif // __APPLE__
-
 #define VMW_CONTAINER_OF(ptr, type, member) \
-   ((type *)((char *)(ptr) - vmw_offsetof(type, member)))
+   ((type *)((char *)(ptr) - offsetof(type, member)))
 
 #ifndef ARRAYSIZE
 #define ARRAYSIZE(a) (sizeof (a) / sizeof *(a))
@@ -101,7 +103,7 @@
 
 /* The Solaris 9 cross-compiler complains about these not being used */
 #ifndef sun
-static INLINE int 
+static INLINE int
 Min(int a, int b)
 {
    return a < b ? a : b;
@@ -113,7 +115,7 @@ Min(int a, int b)
 #endif
 
 #ifndef sun
-static INLINE int 
+static INLINE int
 Max(int a, int b)
 {
    return a > b ? a : b;
@@ -155,20 +157,8 @@ Max(int a, int b)
 
 #define IMPLIES(a,b) (!(a) || (b))
 
+
 /*
- * Not everybody (e.g., the monitor) has NULL
- */
-
-#ifndef NULL
-#ifdef  __cplusplus
-#define NULL    0
-#else
-#define NULL    ((void *)0)
-#endif
-#endif
-
-
-/* 
  * Token concatenation
  *
  * The C preprocessor doesn't prescan arguments when they are
@@ -205,7 +195,7 @@ Max(int a, int b)
  */
 
 #ifndef PAGE_SHIFT // {
-#if defined VM_I386
+#if defined __x86_64__ || defined __i386__
    #define PAGE_SHIFT    12
 #elif defined __APPLE__
    #define PAGE_SHIFT    12
@@ -251,24 +241,47 @@ Max(int a, int b)
 #define PAGES_2_BYTES(_npages)  (((uint64)(_npages)) << PAGE_SHIFT)
 #endif
 
+#ifndef KBYTES_SHIFT
+#define KBYTES_SHIFT 10
+#endif
+
 #ifndef MBYTES_SHIFT
 #define MBYTES_SHIFT 20
 #endif
 
 #ifndef MBYTES_2_PAGES
-#define MBYTES_2_PAGES(_nbytes) ((_nbytes) << (MBYTES_SHIFT - PAGE_SHIFT))
+#define MBYTES_2_PAGES(_nbytes) \
+   ((uint64)(_nbytes) << (MBYTES_SHIFT - PAGE_SHIFT))
 #endif
 
 #ifndef PAGES_2_MBYTES
 #define PAGES_2_MBYTES(_npages) ((_npages) >> (MBYTES_SHIFT - PAGE_SHIFT))
 #endif
 
+#ifndef ROUNDUP_PAGES_2_MBYTES
+#define ROUNDUP_PAGES_2_MBYTES(_npages) \
+(((_npages) + MASK(MBYTES_SHIFT - PAGE_SHIFT)) >> (MBYTES_SHIFT - PAGE_SHIFT))
+#endif
+
+#ifndef ROUNDDOWN_PAGES_2_MBYTES
+#define ROUNDDOWN_PAGES_2_MBYTES(_npages) \
+((_npages) >> (MBYTES_SHIFT - PAGE_SHIFT))
+#endif
+
 #ifndef GBYTES_2_PAGES
-#define GBYTES_2_PAGES(_nbytes) ((_nbytes) << (30 - PAGE_SHIFT))
+#define GBYTES_2_PAGES(_nbytes) ((uint64)(_nbytes) << (30 - PAGE_SHIFT))
 #endif
 
 #ifndef PAGES_2_GBYTES
 #define PAGES_2_GBYTES(_npages) ((_npages) >> (30 - PAGE_SHIFT))
+#endif
+
+#ifndef BYTES_2_KBYTES
+#define BYTES_2_KBYTES(_nbytes) ((_nbytes) >> KBYTES_SHIFT)
+#endif
+
+#ifndef KBYTES_2_BYTES
+#define KBYTES_2_BYTES(_nbytes) ((uint64)(_nbytes) << KBYTES_SHIFT)
 #endif
 
 #ifndef BYTES_2_MBYTES
@@ -369,7 +382,7 @@ Max(int a, int b)
 #ifdef _MSC_VER
 #ifdef __cplusplus
 extern "C"
-#endif 
+#endif
 void *_ReturnAddress(void);
 #pragma intrinsic(_ReturnAddress)
 #define GetReturnAddress() _ReturnAddress()
@@ -411,22 +424,6 @@ void *_ReturnAddress(void);
 
 
 #ifdef USERLEVEL // {
-
-/*
- * Note this might be a problem on NT b/c while sched_yield guarantees it
- * moves you to the end of your priority list, Sleep(0) offers no such
- * guarantee.  Bummer.  --Jeremy.
- */
-
-#if defined(_WIN32)
-#      define YIELD()		Sleep(0)
-#elif defined(VMKERNEL)
-/* We don't have a YIELD macro in the vmkernel */
-#else
-#      include <sched.h>        // For sched_yield.  Don't ask.  --Jeremy.
-#      define YIELD()		sched_yield()
-#endif 
-
 
 /*
  * Standardize some Posix names on Windows.
@@ -497,19 +494,8 @@ typedef int pid_t;
 
 #elif defined(__APPLE__) && defined(KERNEL)
 
-#include "availabilityMacOS.h"
-
-#if MAC_OS_X_VERSION_MIN_REQUIRED >= 1050
-// The Mac OS 10.5 kernel SDK defines va_copy in stdarg.h.
+// The macOS kernel SDK defines va_copy in stdarg.h.
 #include <stdarg.h>
-#else
-/*
- * The Mac OS 10.4 kernel SDK needs va_copy. Based on inspection of
- * stdarg.h from the MacOSX10.4u.sdk kernel framework, this should
- * work.
- */
-#define va_copy(dest, src) ((dest) = (src))
-#endif // MAC_OS_X_VERSION_MIN_REQUIRED
 
 #elif defined(__GNUC__) && (__GNUC__ < 3)
 
@@ -529,36 +515,13 @@ typedef int pid_t;
  * driver.
  */
 
-#ifdef _WIN32
+#if defined(_WIN32) && defined(_MSC_VER)
 #define PATH_MAX 256
 #ifndef strcasecmp
 #define strcasecmp(_s1,_s2)   _stricmp((_s1),(_s2))
 #endif
 #ifndef strncasecmp
 #define strncasecmp(_s1,_s2,_n)   _strnicmp((_s1),(_s2),(_n))
-#endif
-#endif
-
-#if defined __linux__ && !defined __KERNEL__ && !defined MODULE && \
-                         !defined VMM && !defined FROBOS && !defined __ANDROID__
-#include <features.h>
-#if __GLIBC_PREREQ(2, 1) && !defined GLIBC_VERSION_21
-#define GLIBC_VERSION_21
-#endif
-#if __GLIBC_PREREQ(2, 2) && !defined GLIBC_VERSION_22
-#define GLIBC_VERSION_22
-#endif
-#if __GLIBC_PREREQ(2, 3) && !defined GLIBC_VERSION_23
-#define GLIBC_VERSION_23
-#endif
-#if __GLIBC_PREREQ(2, 4) && !defined GLIBC_VERSION_24
-#define GLIBC_VERSION_24
-#endif
-#if __GLIBC_PREREQ(2, 5) && !defined GLIBC_VERSION_25
-#define GLIBC_VERSION_25
-#endif
-#if __GLIBC_PREREQ(2, 12) && !defined GLIBC_VERSION_212
-#define GLIBC_VERSION_212
 #endif
 #endif
 
@@ -591,10 +554,10 @@ typedef int pid_t;
 #undef DEBUG_ONLY
 #ifdef VMX86_DEBUG
 #define vmx86_debug      1
-#define DEBUG_ONLY(x)    x
+#define DEBUG_ONLY(...)  __VA_ARGS__
 #else
 #define vmx86_debug      0
-#define DEBUG_ONLY(x)
+#define DEBUG_ONLY(...)
 #endif
 
 #ifdef VMX86_STATS
@@ -634,7 +597,7 @@ typedef int pid_t;
 #define RELEASE_ONLY(x) x
 #else
 #define vmx86_release   0
-#define RELEASE_ONLY(x) 
+#define RELEASE_ONLY(x)
 #endif
 
 #ifdef VMX86_SERVER
@@ -687,27 +650,36 @@ typedef int pid_t;
 #define vmw_apple_sandbox 0
 #endif
 
+#if defined(__APPLE__) && defined(VMW_APPLE_APP_STORE)
+#define vmw_apple_app_store 1
+#else
+#define vmw_apple_app_store 0
+#endif
+
 #ifdef VMM
 #define VMM_ONLY(x) x
 #else
 #define VMM_ONLY(x)
 #endif
 
+#ifdef ULM
+#define vmx86_ulm 1
+#define ULM_ONLY(x) x
+#else
+#define vmx86_ulm 0
+#define ULM_ONLY(x)
+#endif
+
+#if defined(VMM) || defined(ULM)
+#define MONITOR_ONLY(x) x
+#else
+#define MONITOR_ONLY(x)
+#endif
+
 #if defined(VMM) || defined(VMKERNEL)
 #define USER_ONLY(x)
 #else
 #define USER_ONLY(x) x
-#endif
-
-/* VMVISOR ifdef only allowed in the vmkernel */
-#ifdef VMKERNEL
-#ifdef VMVISOR
-#define vmvisor 1
-#define VMVISOR_ONLY(x) x
-#else
-#define vmvisor 0
-#define VMVISOR_ONLY(x)
-#endif
 #endif
 
 #ifdef _WIN32
@@ -742,12 +714,6 @@ typedef int pid_t;
 #endif
 #endif // _WIN32
 
-#ifdef HOSTED_LG_PG
-#define hosted_lg_pg 1
-#else
-#define hosted_lg_pg 0
-#endif
-
 /*
  * Use to initialize cbSize for this structure to preserve < Vista
  * compatibility.
@@ -758,7 +724,7 @@ typedef int pid_t;
 /* This is not intended to be thread-safe. */
 #define DO_ONCE(code)                                                   \
    do {                                                                 \
-      static Bool _doOnceDone = FALSE;                                  \
+      static MONITOR_ONLY(PERVCPU) Bool _doOnceDone = FALSE;            \
       if (UNLIKELY(!_doOnceDone)) {                                     \
          _doOnceDone = TRUE;                                            \
          code;                                                          \

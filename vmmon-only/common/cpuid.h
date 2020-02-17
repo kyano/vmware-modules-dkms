@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998, 2016-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998, 2016-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -31,19 +31,64 @@
 
 #include "x86cpuid.h"
 
-extern uint32 cpuidFeatures;
+extern uint32      cpuidFeatures;
+extern uint32      cpuidVersion;
+extern CpuidVendor cpuidVendor;
+extern Bool        hostSupportsVT;
+extern Bool        hostSupportsSVM;
+extern Bool        hostHasSpecCtrl;
+extern Bool        hostSupportsXSave;
 
 void CPUID_Init(void);
-CpuidVendor CPUID_GetVendor(void);
-uint32 CPUID_GetVersion(void);
 Bool CPUID_AddressSizeSupported(void);
-Bool CPUID_HostSupportsHV(void);
-Bool CPUID_HostSupportsSpecCtrl(void);
 
 static INLINE uint32
 CPUID_GetFeatures(void)
 {
    return cpuidFeatures;
+}
+
+static INLINE CpuidVendor
+CPUID_GetVendor(void)
+{
+   ASSERT(cpuidVendor != CPUID_NUM_VENDORS);
+   return cpuidVendor;
+}
+
+static INLINE uint32
+CPUID_GetVersion(void)
+{
+   return cpuidVersion;
+}
+
+static INLINE Bool
+CPUID_HostSupportsVT(void)
+{
+   return hostSupportsVT;
+}
+
+static INLINE Bool
+CPUID_HostSupportsSVM(void)
+{
+   return hostSupportsSVM;
+}
+
+static INLINE Bool
+CPUID_HostSupportsHV(void)
+{
+   return hostSupportsVT || hostSupportsSVM;
+}
+
+static INLINE Bool
+CPUID_HostSupportsSpecCtrl(void)
+{
+   return hostHasSpecCtrl;
+}
+
+static INLINE Bool
+CPUID_HostSupportsXSave(void)
+{
+   return hostSupportsXSave;
 }
 
 static INLINE Bool

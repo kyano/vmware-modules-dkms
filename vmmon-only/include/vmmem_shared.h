@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2000-2015,2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2000-2015,2017-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -48,16 +48,19 @@
 
 #define VMMEM_GUEST_WRITEABLE     VMMEM_FLAG_BIT(0)
 #define VMMEM_GUEST_BREAKCOW      VMMEM_FLAG_BIT(1)
-#define VMMEM_GUEST_LARGE_PAGE    VMMEM_FLAG_BIT(2)
-#define VMMEM_GUEST_CAN_FAIL      VMMEM_FLAG_BIT(3)
-#define VMMEM_GUEST_TEST_ZEROCOW  VMMEM_FLAG_BIT(4)
-#define VMMEM_GUEST_TRY_ZEROCOW   VMMEM_FLAG_BIT(5)
-#define VMMEM_GUEST_TRY_POISONCOW VMMEM_FLAG_BIT(6)
-#define VMMEM_GUEST_PREALLOC      VMMEM_FLAG_BIT(7)
-#define VMMEM_GUEST_ALL_FLAGS     MASK(8)
+#define VMMEM_GUEST_2M_PAGE       VMMEM_FLAG_BIT(2)
+#define VMMEM_GUEST_1G_PAGE       VMMEM_FLAG_BIT(3)
+#define VMMEM_GUEST_CAN_FAIL      VMMEM_FLAG_BIT(4)
+#define VMMEM_GUEST_TEST_ZEROCOW  VMMEM_FLAG_BIT(5)
+#define VMMEM_GUEST_TRY_ZEROCOW   VMMEM_FLAG_BIT(6)
+#define VMMEM_GUEST_TRY_POISONCOW VMMEM_FLAG_BIT(7)
+#define VMMEM_GUEST_PREALLOC      VMMEM_FLAG_BIT(8)
+#define VMMEM_GUEST_ALL_FLAGS     MASK(9)
 #define VMMEM_GUEST_TRY_COW       (VMMEM_GUEST_TEST_ZEROCOW | \
                                    VMMEM_GUEST_TRY_ZEROCOW  | \
                                    VMMEM_GUEST_TRY_POISONCOW)
+#define VMMEM_GUEST_LARGE_PAGE    (VMMEM_GUEST_2M_PAGE | \
+                                   VMMEM_GUEST_1G_PAGE)
 
 #define VMMEM_PLATFORM_CHECK_OK           VMMEM_FLAG_BIT(0)
 #define VMMEM_PLATFORM_KEY_OK             VMMEM_FLAG_BIT(1)
@@ -80,11 +83,10 @@
  * Structure used to query platform about the page state.
  */
 typedef struct PlatformPageInfoList {
-   uint32 numPages;
-   uint32 _pad;
-   BPN    bpn[MAX_PLATFORM_PAGE_INFO_PAGES];    // bpns to check
-   MPN    mpn[MAX_PLATFORM_PAGE_INFO_PAGES];    // filled in by host
-   uint8  flags[MAX_PLATFORM_PAGE_INFO_PAGES];  // filled in by host
+   PageCnt numPages;
+   BPN     bpn[MAX_PLATFORM_PAGE_INFO_PAGES];    // bpns to check
+   MPN     mpn[MAX_PLATFORM_PAGE_INFO_PAGES];    // filled in by host
+   uint8   flags[MAX_PLATFORM_PAGE_INFO_PAGES];  // filled in by host
 } PlatformPageInfoList;
 
 #define VMMEM_SERVICES_TYPE_2_MASK(type)                  \
@@ -94,9 +96,10 @@ typedef struct PlatformPageInfoList {
 #define VMMEM_SERVICES_CLEAR_MASK(typeMask, type)         \
            (typeMask & ~VMMEM_SERVICES_TYPE_2_MASK(type))
 
-#define VMMEM_SERVICES_DEFS                               \
-   MDEF(VMMEM_SERVICES_TYPE_P2M,  P2MUpdate_FilterPages)  \
-   MDEF(VMMEM_SERVICES_TYPE_SWAP, BusMemSwap_FilterPages)
+#define VMMEM_SERVICES_DEFS                                       \
+   MDEF(VMMEM_SERVICES_TYPE_P2M,         P2MUpdate_FilterPages)   \
+   MDEF(VMMEM_SERVICES_TYPE_SWAP,        BusMemSwap_FilterPages)  \
+   MDEF(VMMEM_SERVICES_TYPE_DIRTY_CLEAR, DirtyDrainer_ClearDirty)
 
 #define MDEF(_type, _cb) _type,
 typedef enum VmMemServices_Type {

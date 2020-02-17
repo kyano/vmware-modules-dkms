@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006, 2016 VMware, Inc. All rights reserved.
+ * Copyright (C) 2017-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,47 +17,34 @@
  *********************************************************/
 
 /*
- * basic_initblock.h --
+ * vmmblob.h --
  *
- *    VM initialization block.
+ *     VMM blob management.
  */
 
-#ifndef _BASIC_INITBLOCK_H_
-#define _BASIC_INITBLOCK_H_
+#ifndef VMMBLOB_H
+#define VMMBLOB_H
 
-
-#define INCLUDE_ALLOW_USERLEVEL
-
-#define INCLUDE_ALLOW_MODULE
-#define INCLUDE_ALLOW_VMMON
-#define INCLUDE_ALLOW_VMKERNEL
-#define INCLUDE_ALLOW_VMK_MODULE
-#define INCLUDE_ALLOW_DISTRIBUTE
 #define INCLUDE_ALLOW_VMCORE
+#define INCLUDE_ALLOW_VMMON
 #include "includeCheck.h"
 
+struct VMDriver;
+struct MonLoaderHeader;
 
-#include "vcpuid.h"
+typedef struct VmmBlobInfo {
+   uint8                  *blobPtr;
+   uint32                  numBytes;
+   MPN                    *mpns;
+   struct MonLoaderHeader *header;
+} VmmBlobInfo;
 
+void   VmmBlob_Cleanup(VmmBlobInfo *bi);
+Bool   VmmBlob_Load(VA64 bsBlobAddr, uint32 numBytes, uint32 headerOffset,
+                    VmmBlobInfo **blobInfo);
+MPN    VmmBlob_GetMpn(struct VMDriver *vm, uint64 blobOffset);
+MPN    VmmBlob_GetHeaderMpn(struct VMDriver *vm);
+uint8 *VmmBlob_GetPtr(VMDriver *vm);
+uint64 VmmBlob_GetSize(VMDriver *vm);
 
-#define MAX_INITBLOCK_CPUS     MAX_VCPUS
-
-
-typedef
-#include "vmware_pack_begin.h"
-struct InitBlock {
-   uint32 magicNumber;     /* Magic number (INIT_BLOCK_MAGIC) */
-   Vcpuid numVCPUs;
-   VA64   crosspage[MAX_INITBLOCK_CPUS];
-   LPN64  monStartLPN;
-   LPN64  monEndLPN;
-   uint32 vmInitFailurePeriod;
-   LA64   crossGDTHKLA;
-   MPN    crossGDTMPNs[5];  // CROSSGDT_NUMPAGES
-   uint16 numPTPPages;
-}
-#include "vmware_pack_end.h"
-InitBlock;
-
-
-#endif // _BASIC_INITBLOCK_H_
+#endif /* VMMBLOB_H */

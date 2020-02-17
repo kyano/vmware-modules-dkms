@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998, 2008, 2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -29,9 +29,10 @@
 #define INCLUDE_ALLOW_VMMON
 #define INCLUDE_ALLOW_VMCORE
 #include "includeCheck.h"
+#include "vm_basic_types.h"
 
 
-void *HostIF_AllocKernelMem(size_t size, int nonPageable);
+void *HostIF_AllocKernelMem(size_t size, Bool nonPageable);
 void  HostIF_FreeKernelMem(void *ptr);
 
 #endif // ifdef _HOSTIFMEM_H_

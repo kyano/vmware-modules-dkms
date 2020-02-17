@@ -1,8 +1,8 @@
 diff --git a/vmnet-only/userif.c b/vmnet-only/userif.c
-index 4f28232..94a3879 100644
+index d385088..e3cf2f9 100644
 --- a/vmnet-only/userif.c
 +++ b/vmnet-only/userif.c
-@@ -563,20 +563,35 @@ VNetCsumCopyDatagram(const struct sk_buff *skb,	// IN: skb to copy
+@@ -568,20 +568,35 @@ VNetCsumCopyDatagram(const struct sk_buff *skb,	// IN: skb to copy
     for (frag = skb_shinfo(skb)->frags;
  	frag != skb_shinfo(skb)->frags + skb_shinfo(skb)->nr_frags;
  	frag++) {

@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2011 VMware, Inc. All rights reserved.
+ * Copyright (C) 2011, 2016, 2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -17,7 +17,8 @@
  *********************************************************/
 
 #include "vmware.h"
-#include "hostif.h"
+#include "x86apic.h"
+#include "x86msr.h"
 #include "x86cpuid_asm.h"
 #include "vm_asm.h"
 #include "cpuid.h"
@@ -56,7 +57,7 @@ APIC_GetMA(void)
 
    if (cpuVendor != CPUID_VENDOR_INTEL &&
        cpuVendor != CPUID_VENDOR_AMD &&
-       cpuVendor != CPUID_VENDOR_VIA) {
+       cpuVendor != CPUID_VENDOR_HYGON) {
       return (MA)-1;
    }
 
@@ -64,7 +65,7 @@ APIC_GetMA(void)
     * Check if X2 APIC mode is enabled.
     */
 
-   if ((__GET_MSR(MSR_APIC_BASE) & APIC_MSR_X2APIC_ENABLED) != 0) {
+   if ((X86MSR_GetMSR(MSR_APIC_BASE) & APIC_MSR_X2APIC_ENABLED) != 0) {
       return (MA)-1;
    }
 
@@ -74,18 +75,16 @@ APIC_GetMA(void)
     */
 
    // Mask out goo in the low 12 bits, which is unrelated to the address.
-   result = __GET_MSR(MSR_APIC_BASE) & ~MASK64(PAGE_SHIFT);
+   result = X86MSR_GetMSR(MSR_APIC_BASE) & ~MASK64(PAGE_SHIFT);
 
    /*
     * On Intel, the high bits are reserved so we mask.
-    * On AMD, high bits are explicitly MBZ, so no need.
-    * Via doesn't specify, so we'll assume reserved.
+    * On AMD and Hygon, high bits are explicitly MBZ, so no need.
     */
-   if (cpuVendor == CPUID_VENDOR_INTEL || cpuVendor == CPUID_VENDOR_VIA) {
+   if (cpuVendor == CPUID_VENDOR_INTEL) {
       /*
        * Intel suggests using CPUID 0x80000008.eax[7-0] (physical
        * address size), with 36 (24 bit MPNs) as a fallback.
-       * Via has that cpuid leaf as well.
        */
       unsigned numPhysicalBits = 36;
 
@@ -123,7 +122,7 @@ APIC_Read(const APICDescriptor *desc, // IN
           int regNum)                 // IN
 {
    if (desc->isX2) {
-      return (uint32 )__GET_MSR(MSR_X2APIC_BASE + regNum);
+      return (uint32)X86MSR_GetMSR(MSR_X2APIC_BASE + regNum);
    } else {
       return desc->base[regNum][0];
    }
@@ -183,7 +182,7 @@ APIC_Write(const APICDescriptor *desc, // IN
            uint32 val)                 // IN
 {
    if (desc->isX2) {
-      __SET_MSR(MSR_X2APIC_BASE + regNum, val);
+      X86MSR_SetMSR(MSR_X2APIC_BASE + regNum, val);
    } else {
       desc->base[regNum][0] = val;
    }
@@ -211,7 +210,7 @@ uint64
 APIC_ReadICR(const APICDescriptor *desc) // IN
 {
    if (desc->isX2) {
-      return __GET_MSR(MSR_X2APIC_BASE + APICR_ICRLO);
+      return X86MSR_GetMSR(MSR_X2APIC_BASE + APICR_ICRLO);
    } else {
       uint32 icrHi = desc->base[APICR_ICRHI][0];
       uint32 icrLo = desc->base[APICR_ICRLO][0];
@@ -245,7 +244,7 @@ APIC_WriteICR(const APICDescriptor *desc, // IN
 {
    if (desc->isX2) {
       uint64 icr = (uint64) id << 32 | icrLo;
-      __SET_MSR(MSR_X2APIC_BASE + APICR_ICRLO, icr);
+      X86MSR_SetMSR(MSR_X2APIC_BASE + APICR_ICRLO, icr);
    } else {
       ASSERT(!(id & ~(APIC_ICRHI_DEST_MASK >> APIC_ICRHI_DEST_OFFSET)));
       desc->base[APICR_ICRHI][0] = id << APIC_ICRHI_DEST_OFFSET;
