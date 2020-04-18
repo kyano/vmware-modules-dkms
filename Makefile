@@ -3,6 +3,6 @@ SUBDIRS := vmmon-only vmnet-only
 
 $(TARGETS): $(SUBDIRS)
 $(SUBDIRS):
-	$(MAKE) -C $@ $(MAKECMDGOALS)
+	$(MAKE) VM_UNAME=$(KERNELRELEASE) -C $@ $(MAKECMDGOALS)
 
 .PHONY: all clean $(SUBDIRS)
