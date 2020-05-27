@@ -1,0 +1,28 @@
+diff --git a/vmmon-only/Makefile b/vmmon-only/Makefile
+index f859c8c..7616899 100644
+--- a/vmmon-only/Makefile
++++ b/vmmon-only/Makefile
+@@ -136,9 +136,6 @@ ifdef VMX86_DEBUG
+ CC_OPTS += -DVMX86_DEBUG
+ endif
+ 
+-# Add Spectre options when available
+-CC_OPTS += $(call vm_check_gcc,-mindirect-branch=thunk -mindirect-branch-register,)
+-
+ include $(SRCROOT)/Makefile.kernel
+ 
+ else
+diff --git a/vmnet-only/Makefile b/vmnet-only/Makefile
+index 40bdb6a..5ac1180 100644
+--- a/vmnet-only/Makefile
++++ b/vmnet-only/Makefile
+@@ -136,9 +136,6 @@ ifdef VMX86_DEBUG
+ CC_OPTS += -DVMX86_DEBUG
+ endif
+ 
+-# Add Spectre options when available
+-CC_OPTS += $(call vm_check_gcc,-mindirect-branch=thunk -mindirect-branch-register,)
+-
+ include $(SRCROOT)/Makefile.kernel
+ 
+ else
